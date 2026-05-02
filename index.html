@@ -371,6 +371,7 @@ function escHtml(str) {
 /* ---- AES-GCM 加密工具 ---- */
 var _encKey = null;
 var _encSalt = null;
+var _adminPwd = '';  /* 缓存当前管理员密码，salt变更时可重新派生密钥 */
 
 function _getEncSalt() {
   if (_encSalt) return _encSalt;
@@ -384,6 +385,34 @@ function _getEncSalt() {
   _encSalt = crypto.getRandomValues(new Uint8Array(16));
   localStorage.setItem('scan_tool_enc_salt', btoa(String.fromCharCode.apply(null, _encSalt)));
   return _encSalt;
+}
+/* 从云端恢复salt（确保跨设备加解密一致） */
+/* 返回 Promise：如果salt变化且需要重新派生密钥，等待派生完成 */
+function _restoreEncSalt(b64Salt) {
+  if (!b64Salt) return Promise.resolve(false);
+  try {
+    var currentB64 = localStorage.getItem('scan_tool_enc_salt');
+    /* salt未变化，无需重新派生密钥 */
+    if (currentB64 === b64Salt) return Promise.resolve(false);
+    var raw = atob(b64Salt);
+    var arr = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    _encSalt = arr;
+    localStorage.setItem('scan_tool_enc_salt', b64Salt);
+    /* salt变了，需要用新salt重新派生密钥 */
+    _encKey = null;
+    if (_adminPwd) {
+      return deriveEncKey(_adminPwd).then(function(key){ _encKey = key; return true; }).catch(function(){ return true; });
+    }
+    return Promise.resolve(true);
+  } catch(e) { return Promise.resolve(false); }
+}
+/* 导出当前salt的base64（用于保存到云端） */
+function _exportEncSalt() {
+  var s = localStorage.getItem('scan_tool_enc_salt');
+  if (s) return s;
+  _getEncSalt();
+  return localStorage.getItem('scan_tool_enc_salt');
 }
 
 async function deriveEncKey(password) {
@@ -546,6 +575,7 @@ function doConfirm() {
 function logoutAdmin() {
   clearTimeout(sessionTimer);
   _encKey = null;
+  _adminPwd = '';
   sessionStorage.removeItem(ADMIN_KEY);
   updateLockUI();
   switchTab('input');
@@ -573,14 +603,28 @@ async function doChangePwd() {
   if (newPwd !== confirmPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '两次输入的新密码不一致'; return; }
   var oldOk = await verifyPwd(oldPwd);
   if (!oldOk) { hint.style.color = '#ff4d4f'; hint.textContent = '当前密码错误'; return; }
+  /* 用旧密钥解密所有加密字段 */
+  if (_encKey) {
+    try {
+      var decRes = await Promise.all([decryptAllRecords(records, _encKey), decryptAllRecords(trashRecords, _encKey)]);
+      records = decRes[0]; trashRecords = decRes[1];
+    } catch(e) {}
+  }
+  /* 更新密码哈希 */
   var newHash = await sha256(newPwd);
   localStorage.setItem(PWD_STORE_KEY, newHash);
-  saveRecords();
-  closeChangePwd();
-  sessionStorage.removeItem(ADMIN_KEY);
-  updateLockUI();
-  switchTab('input');
-  showToast('\u2705 密码修改成功，请重新登录');
+  /* 用新密码派生新密钥，并重新加密 */
+  _adminPwd = newPwd;
+  try {
+    _encKey = await deriveEncKey(newPwd);
+  } catch(e) { _encKey = null; }
+  saveRecords(function(){
+    closeChangePwd();
+    renderRecords();
+    updateTrashCount();
+  });
+  /* 密码修改后保持管理员登录状态，不需要重新登录 */
+  showToast('\u2705 密码修改成功');
 }
 
 /* ---- 登录弹窗 ---- */
@@ -627,9 +671,8 @@ async function doLogin() {
     return;
   }
   LOGIN_ATTEMPTS = 0;
+  _adminPwd = pwd;  /* 缓存密码，用于salt变更时重新派生密钥 */
   sessionStorage.setItem(ADMIN_KEY, '1');
-  /* 派生加密密钥 */
-  try { _encKey = await deriveEncKey(pwd); } catch(e) {}
   closeLogin();
   updateLockUI();
   document.getElementById('tab-records-btn').style.display = '';
@@ -637,9 +680,17 @@ async function doLogin() {
   document.getElementById('tab-records').style.display = '';
   document.querySelectorAll('.tab-btn')[0].classList.remove('active');
   document.querySelectorAll('.tab-btn')[1].classList.add('active');
+  /* 先加载云端数据（恢复salt），再派生密钥，最后解密渲染 */
   loadRecords(function(){
-    renderRecords();
-    updateTrashCount();
+    deriveEncKey(pwd).then(function(key){
+      _encKey = key;
+      /* 用新密钥重新解密所有记录 */
+      Promise.all([decryptAllRecords(records, _encKey), decryptAllRecords(trashRecords, _encKey)]).then(function(res){
+        records = res[0]; trashRecords = res[1];
+        renderRecords();
+        updateTrashCount();
+      }).catch(function(){ renderRecords(); updateTrashCount(); });
+    }).catch(function(){ renderRecords(); updateTrashCount(); });
   });
   showToast('\u2705 管理员已解锁');
   resetSessionTimer();
@@ -817,26 +868,32 @@ function loadRecords(onDone) {
   isLoading = true;
   var lo = document.getElementById('loading-overlay');
   if (lo) lo.classList.add('show');
-  /* 先获取文件SHA，再获取内容 */
+  /* 先获取SHA，再获取内容，确保SHA在后续保存时可用 */
   fetch(GH_API, { headers: { 'Authorization': 'token ' + _gT() } })
     .then(function(r){ return r.json(); })
     .then(function(info){ if (info.sha) ghSha = info.sha; })
-    .catch(function(){});
-  fetch(GH_RAW + '?t=' + Date.now())
+    .catch(function(){})
+    .then(function(){
+      return fetch(GH_RAW + '?t=' + Date.now());
+    })
     .then(function(r){ return r.json(); })
     .then(function(data){
       records = data.records || [];
       trashRecords = data.trashRecords || [];
       if (data.pwdHash) localStorage.setItem(PWD_STORE_KEY, data.pwdHash);
-      /* 如果有加密密钥，自动解密敏感字段 */
-      if (_encKey) {
-        Promise.all([decryptAllRecords(records, _encKey), decryptAllRecords(trashRecords, _encKey)]).then(function(res){
-          records = res[0]; trashRecords = res[1];
+      /* 从云端恢复加密salt，确保跨设备加解密一致 */
+      var saltPromise = data.encSalt ? _restoreEncSalt(data.encSalt) : Promise.resolve(false);
+      saltPromise.then(function(){
+        /* 如果有加密密钥，自动解密敏感字段 */
+        if (_encKey) {
+          Promise.all([decryptAllRecords(records, _encKey), decryptAllRecords(trashRecords, _encKey)]).then(function(res){
+            records = res[0]; trashRecords = res[1];
+            if (onDone) onDone();
+          }).catch(function(){ if (onDone) onDone(); });
+        } else {
           if (onDone) onDone();
-        }).catch(function(){ if (onDone) onDone(); });
-      } else {
-        if (onDone) onDone();
-      }
+        }
+      });
     })
     .catch(function(){
       showToast('\u26A0\uFE0F 云端加载失败，使用本地数据');
@@ -855,7 +912,7 @@ function saveRecords(onDone) {
   if (lo) lo.classList.add('show');
   if (lt) lt.textContent = '正在保存到云端...';
   /* 如果有加密密钥，先加密敏感字段再保存 */
-  var saveData = { records: records, trashRecords: trashRecords, pwdHash: localStorage.getItem(PWD_STORE_KEY) || '' };
+  var saveData = { records: records, trashRecords: trashRecords, pwdHash: localStorage.getItem(PWD_STORE_KEY) || '', encSalt: _exportEncSalt() };
   var doSave = function(payload) {
     var content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
         var bodyObj = { message: "Update " + new Date().toLocaleString("zh-CN"), content: content };
@@ -880,7 +937,7 @@ function saveRecords(onDone) {
   };
   if (_encKey) {
     Promise.all([encryptAllRecords(records, _encKey), encryptAllRecords(trashRecords, _encKey)]).then(function(res){
-      var encPayload = { records: res[0], trashRecords: res[1], pwdHash: saveData.pwdHash };
+      var encPayload = { records: res[0], trashRecords: res[1], pwdHash: saveData.pwdHash, encSalt: saveData.encSalt };
       doSave(encPayload);
     });
   } else {
