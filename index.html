@@ -190,13 +190,24 @@
       </div>
       <div class="field-group">
         <div class="field-label">&#x1F9A6; 身份证号码</div>
-        <div class="field-row">
-          <input id="idcard" class="field-input" type="text" maxlength="18" placeholder="请输入或扫码获取" oninput="validateIdcard()" autocomplete="off" style="text-transform:uppercase;" />
-          <button class="scan-btn" onclick="openScanner('idcard')" title="扫码">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/><path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
-          </button>
-        </div>
+        <input id="idcard" class="field-input" type="text" maxlength="18" placeholder="请输入身份证号码" oninput="validateIdcard()" autocomplete="off" style="text-transform:uppercase;" />
         <div id="idcard-hint" class="validate-hint"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F4F7; 证件照片</div>
+        <div class="photo-area">
+          <div class="photo-preview" id="idcard-photo-preview" onclick="document.getElementById('idcard-photo-file').click()">
+            <div class="photo-placeholder" id="idcard-photo-placeholder">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>
+              点击拍照/选图
+            </div>
+          </div>
+          <div class="photo-btns">
+            <button class="photo-btn" onclick="document.getElementById('idcard-photo-file').click()">&#x1F4F7; 拍照/选择证件照</button>
+            <button class="photo-btn danger" onclick="clearIdcardPhoto()">&#x274C; 清除证件照</button>
+          </div>
+          <input type="file" id="idcard-photo-file" accept="image/*" capture="environment" style="display:none" onchange="onIdcardPhotoSelected(event)" />
+        </div>
       </div>
       <div class="field-group">
         <div class="field-label">&#x1F3AE; 学号/工号</div>
@@ -560,6 +571,7 @@ function validateBankcard() {
 
 /* ---- 照片采集 ---- */
 var currentPhotoData = '';
+var currentIdcardPhotoData = '';
 function onPhotoSelected(e) {
   var file = e.target.files[0];
   if (!file) return;
@@ -589,6 +601,38 @@ function clearPhoto() {
   currentPhotoData = '';
   var preview = document.getElementById('photo-preview');
   preview.innerHTML = '<div class="photo-placeholder" id="photo-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>点击拍照/选图</div>';
+}
+
+/* ---- 证件照采集 ---- */
+function onIdcardPhotoSelected(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('\u26A0\uFE0F 证件照不能超过5MB'); return; }
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var maxW = 600;
+      var scale = Math.min(maxW / img.width, 1);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      currentIdcardPhotoData = canvas.toDataURL('image/jpeg', 0.7);
+      var preview = document.getElementById('idcard-photo-preview');
+      preview.innerHTML = '<img src="' + currentIdcardPhotoData + '" />';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function clearIdcardPhoto() {
+  currentIdcardPhotoData = '';
+  var preview = document.getElementById('idcard-photo-preview');
+  preview.innerHTML = '<div class="photo-placeholder" id="idcard-photo-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>点击拍照/选图</div>';
 }
 
 /* ---- 照片查看 ---- */
@@ -665,6 +709,7 @@ function submitRecord() {
     empno: empno,
     bankcard: bankcard,
     photo: currentPhotoData,
+    idcardPhoto: currentIdcardPhotoData,
     resume: resume,
     remark: remark,
     time: new Date().toLocaleString('zh-CN')
@@ -675,6 +720,7 @@ function submitRecord() {
   });
   ['name-hint','phone-hint','idcard-hint','bankcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
   clearPhoto();
+  clearIdcardPhoto();
   showToast('\u2705 提交成功！');
 }
 
@@ -707,6 +753,7 @@ function renderRecords() {
     html += '<div class="record-item">';
     html += '<span class="record-index">#' + idx + '</span>';
     if (r.photo) html += '<div class="record-row"><span class="record-label">\u7167\u7247</span><span class="record-val"><img class="record-photo" src="' + r.photo + '" onclick="viewPhoto(this.src)" /></span></div>';
+    if (r.idcardPhoto) html += '<div class="record-row"><span class="record-label">证件照</span><span class="record-val"><img class="record-photo" src="' + r.idcardPhoto + '" onclick="viewPhoto(this.src)" /></span></div>';
     html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + highlightText(r.name||'-') + '</span></div>';
     if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(r.phone) + '</span></div>';
     if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(r.idcard) + '</span></div>';
