@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>监考人员信息维护器</title>
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#f0f2f5; min-height:100vh; color:#333; }
+    .header { background:linear-gradient(135deg,#1677ff,#0958d9); color:white; padding:16px 20px; text-align:center; box-shadow:0 2px 8px rgba(22,119,255,0.3); position:sticky; top:0; z-index:100; }
+    .header h1 { font-size:18px; font-weight:600; letter-spacing:1px; }
+    .header p { font-size:12px; opacity:0.85; margin-top:4px; }
+    .admin-entry { position:absolute; right:16px; top:50%; transform:translateY(-50%); background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); border-radius:8px; padding:6px 12px; color:white; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:4px; transition:background 0.2s; }
+    .admin-entry:hover { background:rgba(255,255,255,0.3); }
+    .admin-entry:active { background:rgba(255,255,255,0.15); }
+    .admin-entry.active { background:rgba(82,196,26,0.35); border-color:rgba(82,196,26,0.6); }
+    .container { padding:16px; max-width:480px; margin:0 auto; }
+    .tabs { display:flex; background:white; border-radius:12px; padding:4px; margin-bottom:16px; box-shadow:0 1px 4px rgba(0,0,0,0.08); }
+    .tab-btn { flex:1; padding:10px; border:none; background:transparent; border-radius:9px; font-size:14px; font-weight:500; color:#666; cursor:pointer; transition:all 0.25s; }
+    .tab-btn.active { background:linear-gradient(135deg,#1677ff,#0958d9); color:white; box-shadow:0 2px 6px rgba(22,119,255,0.4); }
+    .card { background:white; border-radius:16px; padding:20px; margin-bottom:16px; box-shadow:0 1px 6px rgba(0,0,0,0.08); }
+    .card-title { font-size:15px; font-weight:600; color:#1677ff; margin-bottom:16px; display:flex; align-items:center; gap:6px; }
+    .card-title::before { content:''; width:3px; height:16px; background:#1677ff; border-radius:2px; display:inline-block; }
+    .field-group { margin-bottom:14px; }
+    .field-label { font-size:13px; color:#666; margin-bottom:6px; font-weight:500; }
+    .field-row { display:flex; gap:8px; align-items:center; }
+    .field-input { flex:1; height:44px; border:1.5px solid #e8e8e8; border-radius:10px; padding:0 12px; font-size:15px; outline:none; transition:border-color 0.2s; color:#333; background:#fafafa; box-sizing:border-box; }
+    .field-input:focus { border-color:#1677ff; background:white; }
+    .field-input.valid { border-color:#52c41a; }
+    .field-input.invalid { border-color:#ff4d4f; }
+    .scan-btn { width:44px; height:44px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 6px rgba(22,119,255,0.35); transition:transform 0.15s,opacity 0.15s; }
+    .scan-btn:active { transform:scale(0.92); opacity:0.85; }
+    .validate-hint { font-size:11px; margin-top:4px; min-height:16px; }
+    .hint-ok { color:#52c41a; }
+    .hint-err { color:#ff4d4f; }
+    .submit-btn { width:100%; height:50px; border-radius:12px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:16px; font-weight:600; cursor:pointer; letter-spacing:1px; box-shadow:0 4px 12px rgba(22,119,255,0.35); transition:transform 0.15s,opacity 0.15s; }
+    .submit-btn:active { transform:scale(0.97); opacity:0.88; }
+    .scanner-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:999; flex-direction:column; align-items:center; justify-content:center; }
+    .scanner-overlay.show { display:flex; }
+    .scanner-box { width:90vw; max-width:380px; background:#111; border-radius:20px; overflow:hidden; position:relative; }
+    .scanner-header { background:#1a1a1a; padding:14px 20px; display:flex; align-items:center; justify-content:space-between; }
+    .scanner-header span { color:white; font-size:15px; font-weight:600; }
+    .scanner-close { color:#aaa; font-size:22px; cursor:pointer; line-height:1; padding:0 4px; }
+    .scanner-close:hover { color:white; }
+    #scanner-view { width:100%; background:#000; min-height:260px; }
+    #scanner-view video { width:100% !important; }
+    #html5-qrcode-button-camera-stop, #html5-qrcode-button-camera-start { display:none !important; }
+    .scanner-tip { color:#aaa; font-size:12px; text-align:center; padding:12px; }
+    .scanner-tip strong { color:#1677ff; }
+    .scan-line-wrap { position:absolute; top:48px; left:50%; transform:translateX(-50%); width:200px; height:200px; pointer-events:none; z-index:10; }
+    .corner { position:absolute; width:20px; height:20px; }
+    .corner-tl { top:0; left:0; border-top:3px solid #1677ff; border-left:3px solid #1677ff; border-radius:3px 0 0 0; }
+    .corner-tr { top:0; right:0; border-top:3px solid #1677ff; border-right:3px solid #1677ff; border-radius:0 3px 0 0; }
+    .corner-bl { bottom:0; left:0; border-bottom:3px solid #1677ff; border-left:3px solid #1677ff; border-radius:0 0 0 3px; }
+    .corner-br { bottom:0; right:0; border-bottom:3px solid #1677ff; border-right:3px solid #1677ff; border-radius:0 0 3px 0; }
+    .scan-line { position:absolute; left:0; top:0; right:0; height:2px; background:linear-gradient(to right,transparent,#1677ff,transparent); animation:scanMove 2s linear infinite; }
+    @keyframes scanMove { 0%{top:0} 100%{top:calc(100% - 2px)} }
+    .records-section .card-title { margin-bottom:10px; }
+    .record-count { margin-left:auto; font-size:12px; color:#999; font-weight:400; }
+    .record-list { max-height:320px; overflow-y:auto; }
+    .record-item { border:1px solid #f0f0f0; border-radius:10px; padding:12px 14px; margin-bottom:8px; background:#fafafa; position:relative; }
+    .record-item:last-child { margin-bottom:0; }
+    .record-index { position:absolute; top:10px; right:12px; font-size:11px; color:#bbb; }
+    .record-row { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
+    .record-row:last-child { margin-bottom:0; }
+    .record-label { font-size:11px; color:#999; min-width:42px; }
+    .record-val { font-size:13px; color:#333; font-weight:500; word-break:break-all; }
+    .record-time { font-size:11px; color:#bbb; margin-top:6px; }
+    .record-delete { position:absolute; bottom:10px; right:12px; color:#ff7875; font-size:12px; cursor:pointer; border:none; background:none; }
+    .empty-state { text-align:center; padding:30px 0; color:#bbb; }
+    .empty-state .icon { font-size:36px; margin-bottom:8px; }
+    .empty-state p { font-size:13px; }
+    .action-bar { display:flex; gap:10px; margin-bottom:16px; }
+    .action-btn { flex:1; height:40px; border-radius:10px; border:1.5px solid #1677ff; background:white; color:#1677ff; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .action-btn:hover { background:#e6f4ff; }
+    .action-btn.danger { border-color:#ff4d4f; color:#ff4d4f; }
+    .action-btn.danger:hover { background:#fff2f0; }
+    .toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%) translateY(20px); background:rgba(0,0,0,0.75); color:white; padding:10px 20px; border-radius:8px; font-size:14px; opacity:0; transition:all 0.3s; z-index:9999; pointer-events:none; white-space:nowrap; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    .safe-bottom { height:24px; }
+    .login-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1000; flex-direction:column; align-items:center; justify-content:center; }
+    .login-overlay.show { display:flex; }
+    .login-box { background:white; border-radius:20px; width:88vw; max-width:360px; padding:28px 24px 24px; box-shadow:0 12px 40px rgba(0,0,0,0.18); animation:popIn 0.25s ease; }
+    @keyframes popIn { from { transform:scale(0.92); opacity:0; } to { transform:scale(1); opacity:1; } }
+    .login-icon { text-align:center; font-size:32px; margin-bottom:4px; }
+    .login-title { font-size:17px; text-align:center; color:#1677ff; margin-bottom:6px; font-weight:600; }
+    .login-sub { font-size:12px; color:#999; text-align:center; margin-bottom:20px; }
+    .login-input { width:100%; height:44px; border:1.5px solid #e8e8e8; border-radius:10px; padding:0 12px; font-size:15px; outline:none; margin-bottom:6px; box-sizing:border-box; }
+    .login-input:focus { border-color:#1677ff; }
+    .login-hint { font-size:11px; min-height:16px; margin-bottom:12px; }
+    .login-btn { width:100%; height:44px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:15px; font-weight:600; cursor:pointer; letter-spacing:1px; }
+    .login-btn:active { opacity:0.85; }
+    .login-cancel { width:100%; height:38px; border-radius:10px; border:none; background:#f5f5f5; color:#999; font-size:13px; cursor:pointer; margin-top:8px; }
+    .chpwd-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1001; flex-direction:column; align-items:center; justify-content:center; }
+    .chpwd-overlay.show { display:flex; }
+    .chpwd-box { background:white; border-radius:20px; width:88vw; max-width:360px; padding:28px 24px 24px; box-shadow:0 12px 40px rgba(0,0,0,0.18); animation:popIn 0.25s ease; }
+    .chpwd-icon { text-align:center; font-size:32px; margin-bottom:4px; }
+    .chpwd-title { font-size:17px; text-align:center; color:#1677ff; margin-bottom:6px; font-weight:600; }
+    .chpwd-sub { font-size:12px; color:#999; text-align:center; margin-bottom:20px; }
+    .chpwd-input { width:100%; height:44px; border:1.5px solid #e8e8e8; border-radius:10px; padding:0 12px; font-size:15px; outline:none; margin-bottom:6px; box-sizing:border-box; }
+    .chpwd-input:focus { border-color:#1677ff; }
+    .chpwd-hint { font-size:11px; min-height:16px; margin-bottom:12px; }
+    .chpwd-btn { width:100%; height:44px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:15px; font-weight:600; cursor:pointer; letter-spacing:1px; }
+    .chpwd-btn:active { opacity:0.85; }
+    .chpwd-cancel { width:100%; height:38px; border-radius:10px; border:none; background:#f5f5f5; color:#999; font-size:13px; cursor:pointer; margin-top:8px; }
+
+    .search-box { display:flex; gap:8px; margin-bottom:12px; }
+    .search-input { flex:1; height:38px; border:1.5px solid #e8e8e8; border-radius:10px; padding:0 12px; font-size:14px; outline:none; background:#fafafa; box-sizing:border-box; }
+    .search-input:focus { border-color:#1677ff; background:white; }
+    .search-clear { width:38px; height:38px; border-radius:10px; border:1.5px solid #e8e8e8; background:white; color:#999; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .search-clear:hover { color:#ff4d4f; }
+    .trash-section { margin-top:16px; }
+    .trash-toggle { display:flex; align-items:center; gap:6px; padding:10px 14px; border:1px solid #f0f0f0; border-radius:10px; background:#fafafa; cursor:pointer; width:100%; font-size:13px; color:#666; font-weight:500; transition:background 0.2s; }
+    .trash-toggle:hover { background:#f0f0f0; }
+    .trash-toggle .arrow { transition:transform 0.2s; font-size:10px; }
+    .trash-toggle.open .arrow { transform:rotate(90deg); }
+    .trash-body { display:none; border:1px solid #f0f0f0; border-top:none; border-radius:0 0 10px 10px; padding:12px 14px; background:#fafafa; }
+    .trash-body.show { display:block; }
+    .trash-count { margin-left:auto; font-size:11px; color:#bbb; }
+    .trash-actions { display:flex; gap:8px; margin-bottom:10px; }
+    .trash-action-btn { flex:1; height:34px; border-radius:8px; border:1.5px solid #1677ff; background:white; color:#1677ff; font-size:12px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .trash-action-btn:hover { background:#e6f4ff; }
+    .trash-action-btn.danger { border-color:#ff4d4f; color:#ff4d4f; }
+    .trash-action-btn.danger:hover { background:#fff2f0; }
+    .record-restore { position:absolute; bottom:10px; right:56px; color:#1677ff; font-size:12px; cursor:pointer; border:none; background:none; }
+    /* ---- 自定义确认对话框 ---- */
+    .confirm-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1002; flex-direction:column; align-items:center; justify-content:center; }
+    .confirm-overlay.show { display:flex; }
+    .confirm-box { background:white; border-radius:20px; width:80vw; max-width:320px; padding:28px 24px 20px; box-shadow:0 12px 40px rgba(0,0,0,0.18); animation:popIn 0.25s ease; text-align:center; }
+    .confirm-icon { font-size:28px; margin-bottom:4px; }
+    .confirm-title { font-size:16px; color:#333; font-weight:600; margin-bottom:6px; }
+    .confirm-msg { font-size:13px; color:#666; margin-bottom:20px; line-height:1.6; }
+    .confirm-actions { display:flex; gap:12px; }
+    .confirm-cancel { flex:1; height:40px; border-radius:10px; border:none; background:#f5f5f5; color:#999; font-size:14px; cursor:pointer; font-weight:500; }
+    .confirm-cancel:active { background:#e8e8e8; }
+    .confirm-ok { flex:1; height:40px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:14px; cursor:pointer; font-weight:600; }
+    .confirm-ok:active { opacity:0.85; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>&#x1F4F1; 监考人员信息维护器</h1>
+  <p>支持扫描二维码 / 条形码自动录入</p>
+  <button class="admin-entry" id="admin-entry-btn" onclick="handleAdminEntry()">&#x1F512; <span id="admin-entry-text">管理</span></button>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('input')">&#x270D;&#xFE0F; 录入</button>
+    <button class="tab-btn" id="tab-records-btn" onclick="switchTab('records')" style="display:none;">&#x1F4CB; 记录 <span id="lock-icon" style="font-size:12px;">&#x1F512;</span></button>
+  </div>
+
+  <div id="tab-input">
+    <div class="card">
+      <div class="card-title">信息录入</div>
+      <div class="field-group">
+        <div class="field-label">&#x1F464; 姓名 <span style="color:#ff4d4f;font-size:13px;">*</span></div>
+        <input id="name" class="field-input" type="text" maxlength="20" placeholder="请输入真实姓名（必填）" oninput="validateName()" autocomplete="off" />
+        <div id="name-hint" class="validate-hint"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F4DE; 手机号码</div>
+        <div class="field-row">
+          <input id="phone" class="field-input" type="tel" maxlength="11" placeholder="请输入或扫码获取" oninput="validatePhone()" autocomplete="off" />
+          <button class="scan-btn" onclick="openScanner('phone')" title="扫码">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/>
+              <path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/>
+              <line x1="7" y1="12" x2="17" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div id="phone-hint" class="validate-hint"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F9A6; 身份证号码</div>
+        <div class="field-row">
+          <input id="idcard" class="field-input" type="text" maxlength="18" placeholder="请输入或扫码获取" oninput="validateIdcard()" autocomplete="off" style="text-transform:uppercase;" />
+          <button class="scan-btn" onclick="openScanner('idcard')" title="扫码">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/>
+              <path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/>
+              <line x1="7" y1="12" x2="17" y2="12"/>
+            </svg>
+          </button>
+        </div>
+        <div id="idcard-hint" class="validate-hint"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F4DD; 备注（选填）</div>
+        <input id="remark" class="field-input" type="text" maxlength="50" placeholder="部门、备注等附加信息" />
+      </div>
+      <button class="submit-btn" onclick="submitRecord()">&#x2705; 保存记录</button>
+    </div>
+  </div>
+
+  <div id="tab-records" style="display:none;">
+    <div class="action-bar">
+      <button class="action-btn" onclick="exportCSV()">&#x2B07;&#xFE0F; 导出 CSV</button>
+      <button class="action-btn" onclick="copyAll()">&#x1F4CB; 复制全部</button>
+      <button class="action-btn" onclick="openChangePwd()">&#x1F510; 改密码</button>
+    </div>
+    <div class="search-box">
+      <input id="search-input" class="search-input" type="text" placeholder="搜索姓名/手机号/身份证号/备注..." oninput="onSearch()" autocomplete="off" />
+      <button class="search-clear" onclick="clearSearch()" title="清除">&#x2715;</button>
+    </div>
+    <div class="card records-section">
+      <div class="card-title">
+        录入记录
+        <span class="record-count" id="record-count">共 0 条</span>
+      </div>
+      <div class="record-list" id="record-list">
+        <div class="empty-state"><div class="icon">&#x1F4ED;</div><p>暂无记录，请先录入信息</p></div>
+      </div>
+      <div class="trash-section">
+        <button class="trash-toggle" id="trash-toggle" onclick="toggleTrash()">
+          <span class="arrow">&#x25B6;</span> &#x1F5D1;&#xFE0F; 回收站 <span class="trash-count" id="trash-count">0 条</span>
+        </button>
+        <div class="trash-body" id="trash-body">
+          <div class="trash-actions">
+            <button class="trash-action-btn" onclick="restoreAll()">&#x21A9;&#xFE0F; 全部恢复</button>
+            <button class="trash-action-btn danger" onclick="emptyTrash()">&#x1F5D1;&#xFE0F; 清空回收站</button>
+          </div>
+          <div class="record-list" id="trash-list">
+            <div class="empty-state"><div class="icon">&#x1F4ED;</div><p>回收站为空</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="safe-bottom"></div>
+</div>
+
+<!-- 扫码弹窗 -->
+<div class="scanner-overlay" id="scanner-overlay">
+  <div class="scanner-box">
+    <div class="scanner-header">
+      <span id="scanner-title">扫描二维码 / 条形码</span>
+      <span class="scanner-close" onclick="closeScanner()">&#x274C;</span>
+    </div>
+    <div style="position:relative;">
+      <div id="scanner-view"></div>
+      <div class="scan-line-wrap">
+        <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
+        <div class="corner corner-bl"></div><div class="corner corner-br"></div>
+        <div class="scan-line"></div>
+      </div>
+    </div>
+    <div class="scanner-tip">将二维码/条形码对准扫描框<br/><strong>支持自动识别手机号与身份证</strong></div>
+  </div>
+</div>
+
+<!-- 管理员登录弹窗 -->
+<div class="login-overlay" id="login-overlay">
+  <div class="login-box">
+    <div class="login-icon">&#x1F512;</div>
+    <div class="login-title">管理员验证</div>
+    <div class="login-sub">请输入管理员密码以查看/导出记录</div>
+    <input id="admin-pwd" class="login-input" type="password" maxlength="20" placeholder="请输入管理员密码" onkeydown="if(event.key==='Enter')doLogin()" autocomplete="off" />
+    <div id="login-hint" class="login-hint"></div>
+    <button class="login-btn" onclick="doLogin()">&#x1F512; 解锁</button>
+    <button class="login-cancel" onclick="closeLogin()">取消</button>
+  </div>
+</div>
+
+<!-- 修改密码弹窗 -->
+<div class="chpwd-overlay" id="chpwd-overlay">
+  <div class="chpwd-box">
+    <div class="chpwd-icon">&#x1F510;</div>
+    <div class="chpwd-title">修改管理员密码</div>
+    <div class="chpwd-sub">修改后需使用新密码重新登录</div>
+    <input id="chpwd-old" class="chpwd-input" type="password" maxlength="20" placeholder="请输入当前密码" autocomplete="off" />
+    <input id="chpwd-new" class="chpwd-input" type="password" maxlength="20" placeholder="请输入新密码（6-20位）" autocomplete="off" />
+    <input id="chpwd-confirm" class="chpwd-input" type="password" maxlength="20" placeholder="请确认新密码" onkeydown="if(event.key==='Enter')doChangePwd()" autocomplete="off" />
+    <div id="chpwd-hint" class="chpwd-hint"></div>
+    <button class="chpwd-btn" onclick="doChangePwd()">&#x1F510; 确认修改</button>
+    <button class="chpwd-cancel" onclick="closeChangePwd()">取消</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 自定义确认对话框 -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <div class="confirm-icon" id="confirm-icon">⚠️</div>
+    <div class="confirm-title" id="confirm-title">确认操作</div>
+    <div class="confirm-msg" id="confirm-msg">确定执行此操作？</div>
+    <div class="confirm-actions">
+      <button class="confirm-cancel" onclick="closeConfirm()">取消</button>
+      <button class="confirm-ok" id="confirm-ok-btn" onclick="doConfirm()">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ---- SHA-256 哈希工具 ---- */
+async function sha256(str) {
+  var buf = new TextEncoder().encode(str);
+  var hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+
+/* ---- 管理员密码配置 ---- */
+var PWD_STORE_KEY = 'scan_tool_pwd_hash';
+var ADMIN_KEY     = 'scan_tool_admin';
+var DEFAULT_PWD   = 'admin123';  // 首次使用默认密码
+
+/* 获取存储的密码哈希，若无则返回默认密码的哈希 */
+async function getStoredHash() {
+  var stored = localStorage.getItem(PWD_STORE_KEY);
+  if (stored) return stored;
+  var h = await sha256(DEFAULT_PWD);
+  localStorage.setItem(PWD_STORE_KEY, h);
+  return h;
+}
+
+/* 验证密码 */
+async function verifyPwd(pwd) {
+  var h = await sha256(pwd);
+  var stored = await getStoredHash();
+  return h === stored;
+}
+
+function isAdmin() { return sessionStorage.getItem(ADMIN_KEY) === '1'; }
+
+function updateLockUI() {
+  var el = document.getElementById('lock-icon');
+  if (!el) return;
+  if (isAdmin()) { el.textContent = ' \u2713'; el.style.color = '#52c41a'; }
+  else            { el.textContent = ' \uD83D\uDD12'; el.style.color = ''; }
+  var entryBtn = document.getElementById('admin-entry-btn');
+  var entryText = document.getElementById('admin-entry-text');
+  if (isAdmin()) {
+    entryBtn.classList.add('active');
+    entryText.textContent = '退出管理';
+  } else {
+    entryBtn.classList.remove('active');
+    entryText.textContent = '管理';
+    document.getElementById('tab-records-btn').style.display = 'none';
+  }
+}
+
+/* ---- 管理员入口点击 ---- */
+function handleAdminEntry() {
+  if (isAdmin()) {
+    showConfirm('退出管理', '确定退出管理员模式？', logoutAdmin);
+  } else {
+    openLogin();
+  }
+}
+
+/* ---- 自定义确认对话框 ---- */
+var confirmCallback = null;
+function showConfirm(title, msg, onOk) {
+  document.getElementById('confirm-title').textContent = title || '确认操作';
+  document.getElementById('confirm-msg').textContent = msg || '确定执行此操作？';
+  confirmCallback = onOk || null;
+  document.getElementById('confirm-overlay').classList.add('show');
+  setTimeout(function(){ document.getElementById('confirm-ok-btn').focus(); }, 100);
+}
+function closeConfirm() {
+  document.getElementById('confirm-overlay').classList.remove('show');
+  confirmCallback = null;
+}
+function doConfirm() {
+  var cb = confirmCallback;
+  closeConfirm();
+  if (typeof cb === 'function') cb();
+}
+
+function logoutAdmin() {
+  sessionStorage.removeItem(ADMIN_KEY);
+  updateLockUI();
+  switchTab('input');
+  showToast('\u2705 已退出管理员模式');
+}
+
+/* ---- 修改密码弹窗 ---- */
+function openChangePwd() {
+  if (!requireAdmin()) return;
+  document.getElementById('chpwd-overlay').classList.add('show');
+  ['chpwd-old','chpwd-new','chpwd-confirm'].forEach(function(id){ document.getElementById(id).value = ''; });
+  document.getElementById('chpwd-hint').textContent = '';
+  setTimeout(function(){ document.getElementById('chpwd-old').focus(); }, 100);
+}
+function closeChangePwd() { document.getElementById('chpwd-overlay').classList.remove('show'); }
+
+async function doChangePwd() {
+  var oldPwd = document.getElementById('chpwd-old').value;
+  var newPwd = document.getElementById('chpwd-new').value;
+  var confirmPwd = document.getElementById('chpwd-confirm').value;
+  var hint = document.getElementById('chpwd-hint');
+
+  if (!oldPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入当前密码'; return; }
+  if (!newPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入新密码'; return; }
+  if (newPwd.length < 6) { hint.style.color = '#ff4d4f'; hint.textContent = '新密码至少6位'; return; }
+  if (newPwd !== confirmPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '两次输入的新密码不一致'; return; }
+
+  var oldOk = await verifyPwd(oldPwd);
+  if (!oldOk) { hint.style.color = '#ff4d4f'; hint.textContent = '当前密码错误'; return; }
+
+  var newHash = await sha256(newPwd);
+  localStorage.setItem(PWD_STORE_KEY, newHash);
+  closeChangePwd();
+  // 修改密码后强制退出，需要重新登录
+  sessionStorage.removeItem(ADMIN_KEY);
+  updateLockUI();
+  switchTab('input');
+  showToast('\u2705 密码修改成功，请重新登录');
+}
+
+/* ---- 登录弹窗 ---- */
+function openLogin() {
+  document.getElementById('login-overlay').classList.add('show');
+  var pw = document.getElementById('admin-pwd');
+  pw.value = '';
+  document.getElementById('login-hint').textContent = '';
+  setTimeout(function(){ pw.focus(); }, 100);
+}
+function closeLogin() { document.getElementById('login-overlay').classList.remove('show'); }
+
+async function doLogin() {
+  var pwd  = document.getElementById('admin-pwd').value;
+  var hint = document.getElementById('login-hint');
+  if (!pwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入密码'; return; }
+  var ok = await verifyPwd(pwd);
+  if (!ok) { hint.style.color = '#ff4d4f'; hint.textContent = '密码错误，请重试'; return; }
+  sessionStorage.setItem(ADMIN_KEY, '1');
+  closeLogin();
+  updateLockUI();
+  document.getElementById('tab-records-btn').style.display = '';
+  document.getElementById('tab-input').style.display = 'none';
+  document.getElementById('tab-records').style.display = '';
+  document.querySelectorAll('.tab-btn')[0].classList.remove('active');
+  document.querySelectorAll('.tab-btn')[1].classList.add('active');
+  renderRecords();
+  showToast('\u2705 管理员已解锁');
+}
+
+/* ---- Tab 切换 ---- */
+function switchTab(tab) {
+  if (tab === 'records' && !isAdmin()) { openLogin(); return; }
+  document.getElementById('tab-input').style.display  = tab === 'input' ? '' : 'none';
+  document.getElementById('tab-records').style.display = tab === 'records' ? '' : 'none';
+  document.querySelectorAll('.tab-btn').forEach(function(btn, i){
+    btn.classList.toggle('active', (i===0 && tab==='input') || (i===1 && tab==='records'));
+  });
+  if (tab === 'records') renderRecords();
+  if (tab === 'input' && !isAdmin()) { document.getElementById('tab-records-btn').style.display = 'none'; }
+}
+
+/* ---- 权限检查 ---- */
+function requireAdmin() {
+  if (!isAdmin()) { showToast('\u26A0\uFE0F 请先以管理员身份解锁'); return false; }
+  return true;
+}
+
+/* ---- 姓名校验 ---- */
+function validateName() {
+  var el = document.getElementById('name');
+  var hint = document.getElementById('name-hint');
+  var v = el.value.trim();
+  if (!v) { el.className='field-input'; hint.textContent=''; return false; }
+  var ok = v.length >= 2;
+  el.className = 'field-input ' + (ok ? 'valid' : 'invalid');
+  hint.className = 'validate-hint ' + (ok ? 'hint-ok' : 'hint-err');
+  hint.textContent = ok ? '\u2713 姓名已填写' : '\u2717 姓名至少需要2个字';
+  return ok;
+}
+
+/* ---- 手机号校验 ---- */
+function validatePhone() {
+  var el = document.getElementById('phone');
+  var hint = document.getElementById('phone-hint');
+  var v = el.value.trim();
+  if (!v) { el.className='field-input'; hint.textContent=''; return null; }
+  var ok = /^1[3-9]\d{9}$/.test(v);
+  el.className = 'field-input ' + (ok ? 'valid' : 'invalid');
+  hint.className = 'validate-hint ' + (ok ? 'hint-ok' : 'hint-err');
+  hint.textContent = ok ? '\u2713 手机号格式正确' : '\u2717 请输入11位有效手机号';
+  return ok;
+}
+
+/* ---- 身份证校验 ---- */
+function validateIdcard() {
+  var el = document.getElementById('idcard');
+  var hint = document.getElementById('idcard-hint');
+  var v = el.value.trim().toUpperCase();
+  el.value = v;
+  if (!v) { el.className='field-input'; hint.textContent=''; return null; }
+  var ok = checkIdcard(v);
+  el.className = 'field-input ' + (ok ? 'valid' : 'invalid');
+  hint.className = 'validate-hint ' + (ok ? 'hint-ok' : 'hint-err');
+  hint.textContent = ok ? '\u2713 身份证格式正确' : '\u2717 身份证号格式有误';
+  return ok;
+}
+function checkIdcard(id) {
+  if (!/^\d{17}[\dX]$/.test(id)) return false;
+  var w = [7,9,10,5,8,4,2,1,6,3,7,9,10,5,8,4,2];
+  var c = ['1','0','X','9','8','7','6','5','4','3','2'];
+  var s = 0;
+  for (var i=0; i<17; i++) s += parseInt(id[i]) * w[i];
+  return c[s % 11] === id[17];
+}
+
+/* ---- 扫码 ---- */
+var html5QrCode = null;
+var currentScanTarget = null;
+
+function openScanner(target) {
+  currentScanTarget = target;
+  document.getElementById('scanner-title').textContent = target === 'phone' ? '扫码识别手机号' : '扫码识别身份证号';
+  document.getElementById('scanner-overlay').classList.add('show');
+  startScanner();
+}
+function startScanner() {
+  if (html5QrCode) { html5QrCode.stop().catch(function(){}); html5QrCode.clear(); }
+  html5QrCode = new Html5Qrcode('scanner-view');
+  html5QrCode.start({ facingMode:'environment' }, { fps:12, qrbox:{width:200,height:200} }, onScanSuccess, function(){})
+    .catch(function(){ showToast('摄像头启动失败，请检查权限设置'); closeScanner(); });
+}
+function onScanSuccess(t) {
+  var raw = t.trim();
+  var val = '';
+  if (currentScanTarget === 'phone') {
+    var m = raw.match(/1[3-9]\d{9}/);
+    val = m ? m[0] : raw.replace(/\D/g,'').slice(0,11);
+  } else {
+    var m2 = raw.match(/\d{17}[\dX]/i);
+    val = m2 ? m2[0].toUpperCase() : raw.replace(/[^0-9X]/gi,'').toUpperCase().slice(0,18);
+  }
+  if (val) {
+    document.getElementById(currentScanTarget).value = val;
+    if (currentScanTarget === 'phone') validatePhone(); else validateIdcard();
+    closeScanner();
+    showToast('\u2705 扫码成功');
+  }
+}
+function closeScanner() {
+  document.getElementById('scanner-overlay').classList.remove('show');
+  if (html5QrCode) { html5QrCode.stop().catch(function(){}); html5QrCode.clear(); html5QrCode = null; }
+}
+
+/* ---- 提交记录 ---- */
+var records = JSON.parse(localStorage.getItem('scan_records') || '[]');
+var trashRecords = JSON.parse(localStorage.getItem('scan_trash_records') || '[]');
+var searchKeyword = ''; var trashOpen = false;
+
+function submitRecord() {
+  var name   = document.getElementById('name').value.trim();
+  var phone  = document.getElementById('phone').value.trim();
+  var idcard = document.getElementById('idcard').value.trim().toUpperCase();
+  var remark = document.getElementById('remark').value.trim();
+  if (!name)           { showToast('\u26A0\uFE0F 请填写姓名');   document.getElementById('name').focus(); return; }
+  if (name.length < 2) { showToast('\u26A0\uFE0F 姓名至少2个字'); return; }
+  if (!phone && !idcard) { showToast('\u26A0\uFE0F 请至少填写手机号或身份证号'); return; }
+  if (phone && !/^1[3-9]\d{9}$/.test(phone)) { showToast('\u26A0\uFE0F 手机号格式有误'); return; }
+  if (idcard && !checkIdcard(idcard))           { showToast('\u26A0\uFE0F 身份证号格式有误'); return; }
+  records.unshift({ id:Date.now(), name:name, phone:phone, idcard:idcard, remark:remark, time:new Date().toLocaleString('zh-CN') });
+  localStorage.setItem('scan_records', JSON.stringify(records));
+  ['name','phone','idcard','remark'].forEach(function(id){
+    document.getElementById(id).value = ''; document.getElementById(id).className = 'field-input';
+  });
+  ['name-hint','phone-hint','idcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
+  showToast('\u2705 保存成功\uFF01');
+}
+
+/* ---- 渲染记录（需管理员）---- */
+function renderRecords() {
+  if (!isAdmin()) return;
+  var list = document.getElementById('record-list');
+  var filtered = records;
+  if (searchKeyword) {
+    var kw = searchKeyword.toLowerCase();
+    filtered = records.filter(function(r){
+      return (r.name||'').toLowerCase().indexOf(kw) >= 0 ||
+             (r.phone||'').indexOf(kw) >= 0 ||
+             (r.idcard||'').toUpperCase().indexOf(kw.toUpperCase()) >= 0 ||
+             (r.remark||'').toLowerCase().indexOf(kw) >= 0;
+    });
+  }
+  var totalTxt = searchKeyword ? ('\u641c\u7d22 ' + filtered.length + ' / \u5171 ' + records.length + ' \u6761') : ('\u5171 ' + records.length + ' \u6761');
+  document.getElementById('record-count').textContent = totalTxt;
+  if (!filtered.length) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">\ud83d\udced</div><p>' + (searchKeyword ? '\u672a\u627e\u5230\u5339\u914d\u8bb0\u5f55' : '\u6682\u65e0\u8bb0\u5f55\uff0c\u8bf7\u5148\u5f55\u5165\u4fe1\u606f') + '</p></div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < filtered.length; i++) {
+    var r = filtered[i];
+    var idx = records.length - records.indexOf(r);
+    html += '<div class="record-item">';
+    html += '<span class="record-index">#' + idx + '</span>';
+    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + highlightText(r.name||'-') + '</span></div>';
+    if (r.phone)  html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(r.phone) + '</span></div>';
+    if (r.idcard) html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(r.idcard) + '</span></div>';
+    if (r.remark) html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + highlightText(r.remark) + '</span></div>';
+    html += '<div class="record-time">' + r.time + '</div>';
+    html += '<button class="record-delete" onclick="if(requireAdmin())deleteRecord(' + r.id + ')">\u5220\u9664</button>';
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+
+function highlightText(text) {
+  if (!searchKeyword || !text) return text;
+  var kw = searchKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(new RegExp(kw, 'gi'), '<span style="color:#1677ff;font-weight:700;">$&</span>');
+}
+
+function onSearch() {
+  searchKeyword = document.getElementById('search-input').value.trim();
+  renderRecords();
+}
+function clearSearch() {
+  document.getElementById('search-input').value = '';
+  searchKeyword = '';
+  renderRecords();
+}
+function deleteRecord(id) {
+  var target = records.filter(function(r){ return r.id === id; })[0];
+  if (!target) return;
+  records = records.filter(function(r){ return r.id !== id; });
+  trashRecords.unshift(target);
+  localStorage.setItem('scan_records', JSON.stringify(records));
+  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+  renderRecords();
+  updateTrashCount();
+  showToast('✅ 已移入回收站');
+}
+
+function toggleTrash() {
+  trashOpen = !trashOpen;
+  var toggle = document.getElementById('trash-toggle');
+  var body = document.getElementById('trash-body');
+  if (trashOpen) { toggle.classList.add('open'); body.classList.add('show'); renderTrash(); }
+  else { toggle.classList.remove('open'); body.classList.remove('show'); }
+}
+
+function updateTrashCount() {
+  var el = document.getElementById('trash-count');
+  if (el) el.textContent = trashRecords.length + ' \u6761';
+}
+
+function renderTrash() {
+  if (!isAdmin()) return;
+  var list = document.getElementById('trash-list');
+  updateTrashCount();
+  if (!trashRecords.length) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">\ud83d\udced</div><p>\u56de\u6536\u7ad9\u4e3a\u7a7a</p></div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < trashRecords.length; i++) {
+    var r = trashRecords[i];
+    var idx = trashRecords.length - i;
+    html += '<div class="record-item">';
+    html += '<span class="record-index">#' + idx + '</span>';
+    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + (r.name||'-') + '</span></div>';
+    if (r.phone)  html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + r.phone + '</span></div>';
+    if (r.idcard) html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + r.idcard + '</span></div>';
+    if (r.remark) html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + r.remark + '</span></div>';
+    html += '<div class="record-time">' + r.time + '</div>';
+    html += '<button class="record-restore" onclick="if(requireAdmin())restoreRecord(' + r.id + ')">\u21a9\ufe0f \u6062\u590d</button>';
+    html += '<button class="record-delete" onclick="if(requireAdmin())permanentDelete(' + r.id + ')">\ud83d\uddd1\ufe0f \u5f7b\u5e95\u5220\u9664</button>';
+    html += '</div>';
+  }
+  list.innerHTML = html;
+}
+
+function restoreRecord(id) {
+  var target = trashRecords.filter(function(r){ return r.id === id; })[0];
+  if (!target) return;
+  trashRecords = trashRecords.filter(function(r){ return r.id !== id; });
+  records.unshift(target);
+  localStorage.setItem('scan_records', JSON.stringify(records));
+  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+  renderRecords();
+  renderTrash();
+  showToast('\u2705 \u5df2\u6062\u590d');
+}
+
+function restoreAll() {
+  if (!requireAdmin()) return;
+  if (!trashRecords.length) { showToast('\u56de\u6536\u7ad9\u4e3a\u7a7a'); return; }
+  if (!confirm('\u786e\u5b9a\u6062\u590d\u5168\u90e8 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\uff1f')) return;
+  records = trashRecords.concat(records);
+  trashRecords = [];
+  localStorage.setItem('scan_records', JSON.stringify(records));
+  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+  renderRecords();
+  renderTrash();
+  showToast('\u2705 \u5df2\u5168\u90e8\u6062\u590d');
+}
+
+function permanentDelete(id) {
+  if (!requireAdmin()) return;
+  trashRecords = trashRecords.filter(function(r){ return r.id !== id; });
+  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+  renderTrash();
+  showToast('\u5df2\u5f7b\u5e95\u5220\u9664');
+}
+
+function emptyTrash() {
+  if (!requireAdmin()) return;
+  if (!trashRecords.length) { showToast('\u56de\u6536\u7ad9\u4e3a\u7a7a'); return; }
+  if (!confirm('\u786e\u5b9a\u6e05\u7a7a\u56de\u6536\u7ad9\uff1f\u5171 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\u5c06\u88ab\u5f7b\u5e95\u5220\u9664\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\uff01')) return;
+  trashRecords = [];
+  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+  renderTrash();
+  showToast('\u5df2\u6e05\u7a7a\u56de\u6536\u7ad9');
+}
+function exportCSV() {
+  if (!requireAdmin()) return;
+  if (!records.length) { showToast('\u6682\u65E0\u8BB0\u5F55\u53EF\u5BFC\u51FA'); return; }
+  var BOM = '\uFEFF';
+  var header = '\u5E8F\u53F7,\u59D3\u540D,\u624B\u673A\u53F7,\u8EAB\u4EFD\u8BC1\u53F7,\u5907\u6CE8,\u5F55\u5165\u65F6\u95F4\n';
+  var rows = [];
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    rows.push((records.length - i) + ',' + (r.name||'') + ',' + (r.phone||'') + ',' + (r.idcard||'') + ',' + (r.remark||'') + ',' + r.time);
+  }
+  var blob = new Blob([BOM + header + rows.join('\n')], { type:'text/csv;charset=utf-8' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = '\u5F55\u5165\u6570\u636E_' + new Date().toLocaleDateString('zh-CN').replace(/\//g,'-') + '.csv';
+  a.click(); URL.revokeObjectURL(url);
+  showToast('\u2705 CSV \u5DF2\u5BFC\u51FA');
+}
+
+function copyAll() {
+  if (!requireAdmin()) return;
+  if (!records.length) { showToast('\u6682\u65E0\u8BB0\u5F55\u53EF\u590D\u5236'); return; }
+  var text = [];
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i];
+    var p = ['[' + (records.length - i) + ']'];
+    if (r.name)   p.push('\u59D3\u540D: ' + r.name);
+    if (r.phone)  p.push('\u624B\u673A\u53F7: ' + r.phone);
+    if (r.idcard) p.push('\u8EAB\u4EFD\u8BC1: ' + r.idcard);
+    if (r.remark) p.push('\u5907\u6CE8: ' + r.remark);
+    p.push('\u65F6\u95F4: ' + r.time);
+    text.push(p.join('  |  '));
+  }
+  navigator.clipboard.writeText(text.join('\n'))
+    .then(function(){ showToast('\u2705 \u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F'); })
+    .catch(function(){ showToast('\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u624B\u52A8\u9009\u62E9\u590D\u5236'); });
+}
+
+/* ---- Toast ---- */
+var toastTimer = null;
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+
+/* ---- 扫码遮罩关闭 ---- */
+document.getElementById('scanner-overlay').addEventListener('click', function(e){
+  if (e.target === e.currentTarget) closeScanner();
+});
+
+/* ---- 确认弹窗遮罩关闭 ---- */
+document.getElementById('confirm-overlay').addEventListener('click', function(e){
+  if (e.target === e.currentTarget) closeConfirm();
+});
+
+/* ---- 页面加载 ---- */
+document.addEventListener('DOMContentLoaded', function(){ updateLockUI(); updateTrashCount(); });
+</script>
+</body>
+</html>
