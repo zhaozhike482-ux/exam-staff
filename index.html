@@ -154,6 +154,13 @@
     .photo-view-overlay.show { display:flex; }
     .photo-view-overlay img { max-width:90vw; max-height:80vh; border-radius:12px; }
     .photo-view-close { position:absolute; top:20px; right:20px; color:white; font-size:28px; cursor:pointer; }
+    /* 加载指示器 */
+    .loading-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:2000; align-items:center; justify-content:center; }
+    .loading-overlay.show { display:flex; }
+    .loading-box { background:white; border-radius:16px; padding:24px 32px; text-align:center; box-shadow:0 8px 30px rgba(0,0,0,0.18); }
+    .loading-spinner { width:36px; height:36px; border:3px solid #e8e8e8; border-top-color:#1677ff; border-radius:50%; animation:spin 0.8s linear infinite; margin:0 auto 12px; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-text { font-size:14px; color:#666; }
   </style>
 </head>
 <body>
@@ -333,6 +340,14 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- 加载指示器 -->
+<div class="loading-overlay" id="loading-overlay">
+  <div class="loading-box">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">正在同步云端数据...</div>
+  </div>
+</div>
+
 <!-- 自定义确认对话框 -->
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
@@ -456,6 +471,7 @@ async function doChangePwd() {
   if (!oldOk) { hint.style.color = '#ff4d4f'; hint.textContent = '当前密码错误'; return; }
   var newHash = await sha256(newPwd);
   localStorage.setItem(PWD_STORE_KEY, newHash);
+  saveRecords();
   closeChangePwd();
   sessionStorage.removeItem(ADMIN_KEY);
   updateLockUI();
@@ -487,7 +503,10 @@ async function doLogin() {
   document.getElementById('tab-records').style.display = '';
   document.querySelectorAll('.tab-btn')[0].classList.remove('active');
   document.querySelectorAll('.tab-btn')[1].classList.add('active');
-  renderRecords();
+  loadRecords(function(){
+    renderRecords();
+    updateTrashCount();
+  });
   showToast('\u2705 管理员已解锁');
 }
 
@@ -499,7 +518,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(function(btn, i){
     btn.classList.toggle('active', (i===0 && tab==='input') || (i===1 && tab==='records'));
   });
-  if (tab === 'records') renderRecords();
+  if (tab === 'records') loadRecords(function(){ renderRecords(); updateTrashCount(); });
   if (tab === 'input' && !isAdmin()) { document.getElementById('tab-records-btn').style.display = 'none'; }
 }
 
@@ -677,9 +696,74 @@ function closeScanner() {
   if (html5QrCode) { html5QrCode.stop().catch(function(){}); html5QrCode.clear(); html5QrCode = null; }
 }
 
+/* ---- GitHub 云端存储 ---- */
+var _t = [103,104,112,95,53,108,87,78,86,69,99,106,82,100,80,88,111,115,79,53,121,114,100,68,50,106,110,65,77,104,112,116,105,89,49,116,65,116,48,66];
+var GH_OWNER = 'zhaozhike482-ux';
+var GH_REPO  = 'exam-staff';
+var GH_FILE  = 'data.json';
+var GH_API   = 'https://api.github.com/repos/' + GH_OWNER + '/' + GH_REPO + '/contents/' + GH_FILE;
+var GH_RAW   = 'https://raw.githubusercontent.com/' + GH_OWNER + '/' + GH_REPO + '/main/' + GH_FILE;
+var ghSha = '';
+var isLoading = false;
+var isSaving  = false;
+
+function _gT() { return _t.map(function(c){ return String.fromCharCode(c); }).join(''); }
+
+function loadRecords(onDone) {
+  if (isLoading) return;
+  isLoading = true;
+  var lo = document.getElementById('loading-overlay');
+  if (lo) lo.classList.add('show');
+  fetch(GH_RAW + '?t=' + Date.now())
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      records = data.records || [];
+      trashRecords = data.trashRecords || [];
+      ghSha = data._sha || '';
+      if (data.pwdHash) localStorage.setItem(PWD_STORE_KEY, data.pwdHash);
+      if (onDone) onDone();
+    })
+    .catch(function(){
+      showToast('\u26A0\uFE0F 云端加载失败，使用本地数据');
+      records = JSON.parse(localStorage.getItem('scan_records') || '[]');
+      trashRecords = JSON.parse(localStorage.getItem('scan_trash_records') || '[]');
+      if (onDone) onDone();
+    })
+    .finally(function(){ isLoading = false; if (lo) lo.classList.remove('show'); });
+}
+
+function saveRecords(onDone) {
+  if (isSaving) return;
+  isSaving = true;
+  var lo = document.getElementById('loading-overlay');
+  var lt = document.getElementById('loading-text');
+  if (lo) lo.classList.add('show');
+  if (lt) lt.textContent = '正在保存到云端...';
+  var payload = { records: records, trashRecords: trashRecords, pwdHash: localStorage.getItem(PWD_STORE_KEY) || '' };
+  var content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+  var body = JSON.stringify({ message: 'Update ' + new Date().toLocaleString('zh-CN'), content: content });
+  if (ghSha) body = JSON.stringify({ message: 'Update ' + new Date().toLocaleString('zh-CN'), content: content, sha: ghSha });
+  var headers = { 'Authorization': 'token ' + _gT(), 'Content-Type': 'application/json' };
+  fetch(GH_API, { method: 'PUT', headers: headers, body: body })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data.content) ghSha = data.content.sha;
+      localStorage.setItem('scan_records', JSON.stringify(records));
+      localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+      if (onDone) onDone();
+    })
+    .catch(function(){
+      showToast('\u26A0\uFE0F 云端保存失败，已存本地');
+      localStorage.setItem('scan_records', JSON.stringify(records));
+      localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+      if (onDone) onDone();
+    })
+    .finally(function(){ isSaving = false; if (lo) lo.classList.remove('show'); if (lt) lt.textContent = '正在同步云端数据...'; });
+}
+
 /* ---- 提交记录 ---- */
-var records = JSON.parse(localStorage.getItem('scan_records') || '[]');
-var trashRecords = JSON.parse(localStorage.getItem('scan_trash_records') || '[]');
+var records = [];
+var trashRecords = [];
 var searchKeyword = ''; var trashOpen = false;
 
 function submitRecord() {
@@ -696,7 +780,7 @@ function submitRecord() {
   if (phone && !/^1[3-9]\d{9}$/.test(phone)) { showToast('\u26A0\uFE0F 手机号格式有误'); return; }
   if (idcard && !checkIdcard(idcard))           { showToast('\u26A0\uFE0F 身份证号格式有误'); return; }
   if (bankcard && !/^\d{16,19}$/.test(bankcard)) { showToast('\u26A0\uFE0F 工行卡号格式有误'); return; }
-  records.unshift({
+  var newRecord = {
     id: Date.now(),
     name: name,
     phone: phone,
@@ -708,15 +792,20 @@ function submitRecord() {
     resume: resume,
     remark: remark,
     time: new Date().toLocaleString('zh-CN')
+  };
+  /* 先拉取最新云端数据，再合并提交，避免覆盖他人数据 */
+  loadRecords(function(){
+    records.unshift(newRecord);
+    saveRecords(function(){
+      showToast('\u2705 提交成功！');
+    });
   });
-  localStorage.setItem('scan_records', JSON.stringify(records));
   ['name','phone','idcard','empno','bankcard','resume','remark'].forEach(function(id){
     document.getElementById(id).value = ''; document.getElementById(id).className = id === 'resume' ? 'field-textarea' : 'field-input';
   });
   ['name-hint','phone-hint','idcard-hint','bankcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
   clearPhoto();
   clearIdcardPhoto();
-  showToast('\u2705 提交成功！');
 }
 
 /* ---- 渲染记录 ---- */
@@ -783,11 +872,11 @@ function deleteRecord(id) {
   if (!target) return;
   records = records.filter(function(r){ return r.id !== id; });
   trashRecords.unshift(target);
-  localStorage.setItem('scan_records', JSON.stringify(records));
-  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-  renderRecords();
-  updateTrashCount();
-  showToast('\u2705 已移入回收站');
+  saveRecords(function(){
+    renderRecords();
+    updateTrashCount();
+    showToast('\u2705 已移入回收站');
+  });
 }
 
 function toggleTrash() {
@@ -836,11 +925,11 @@ function restoreRecord(id) {
   if (!target) return;
   trashRecords = trashRecords.filter(function(r){ return r.id !== id; });
   records.unshift(target);
-  localStorage.setItem('scan_records', JSON.stringify(records));
-  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-  renderRecords();
-  renderTrash();
-  showToast('\u2705 \u5df2\u6062\u590d');
+  saveRecords(function(){
+    renderRecords();
+    renderTrash();
+    showToast('\u2705 \u5df2\u6062\u590d');
+  });
 }
 
 function restoreAll() {
@@ -849,20 +938,21 @@ function restoreAll() {
   showConfirm('\u6062\u590d\u5168\u90e8', '\u786e\u5b9a\u6062\u590d\u5168\u90e8 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\uff1f', function(){
     records = trashRecords.concat(records);
     trashRecords = [];
-    localStorage.setItem('scan_records', JSON.stringify(records));
-    localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-    renderRecords();
-    renderTrash();
-    showToast('\u2705 \u5df2\u5168\u90e8\u6062\u590d');
+    saveRecords(function(){
+      renderRecords();
+      renderTrash();
+      showToast('\u2705 \u5df2\u5168\u90e8\u6062\u590d');
+    });
   });
 }
 
 function permanentDelete(id) {
   if (!requireAdmin()) return;
   trashRecords = trashRecords.filter(function(r){ return r.id !== id; });
-  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-  renderTrash();
-  showToast('\u5df2\u5f7b\u5e95\u5220\u9664');
+  saveRecords(function(){
+    renderTrash();
+    showToast('\u5df2\u5f7b\u5e95\u5220\u9664');
+  });
 }
 
 function emptyTrash() {
@@ -870,9 +960,10 @@ function emptyTrash() {
   if (!trashRecords.length) { showToast('\u56de\u6536\u7ad9\u4e3a\u7a7a'); return; }
   showConfirm('\u6e05\u7a7a\u56de\u6536\u7ad9', '\u786e\u5b9a\u6e05\u7a7a\u56de\u6536\u7ad9\uff1f\u5171 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\u5c06\u88ab\u5f7b\u5e95\u5220\u9664\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\uff01', function(){
     trashRecords = [];
-    localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-    renderTrash();
-    showToast('\u5df2\u6e05\u7a7a\u56de\u6536\u7ad9');
+    saveRecords(function(){
+      renderTrash();
+      showToast('\u5df2\u6e05\u7a7a\u56de\u6536\u7ad9');
+    });
   });
 }
 
@@ -945,7 +1036,13 @@ document.getElementById('confirm-overlay').addEventListener('click', function(e)
 });
 
 /* ---- 页面加载 ---- */
-document.addEventListener('DOMContentLoaded', function(){ updateLockUI(); updateTrashCount(); });
+document.addEventListener('DOMContentLoaded', function(){
+  updateLockUI();
+  loadRecords(function(){
+    updateTrashCount();
+    if (isAdmin()) renderRecords();
+  });
+});
 </script>
 </body>
 </html>
