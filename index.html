@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>监考人员信息维护器</title>
+  <title>监考人员入库申请</title>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -29,6 +29,8 @@
     .field-input:focus { border-color:#1677ff; background:white; }
     .field-input.valid { border-color:#52c41a; }
     .field-input.invalid { border-color:#ff4d4f; }
+    .field-textarea { flex:1; min-height:80px; border:1.5px solid #e8e8e8; border-radius:10px; padding:10px 12px; font-size:14px; outline:none; transition:border-color 0.2s; color:#333; background:#fafafa; box-sizing:border-box; resize:vertical; line-height:1.5; font-family:inherit; }
+    .field-textarea:focus { border-color:#1677ff; background:white; }
     .scan-btn { width:44px; height:44px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; box-shadow:0 2px 6px rgba(22,119,255,0.35); transition:transform 0.15s,opacity 0.15s; }
     .scan-btn:active { transform:scale(0.92); opacity:0.85; }
     .validate-hint { font-size:11px; margin-top:4px; min-height:16px; }
@@ -36,6 +38,18 @@
     .hint-err { color:#ff4d4f; }
     .submit-btn { width:100%; height:50px; border-radius:12px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:16px; font-weight:600; cursor:pointer; letter-spacing:1px; box-shadow:0 4px 12px rgba(22,119,255,0.35); transition:transform 0.15s,opacity 0.15s; }
     .submit-btn:active { transform:scale(0.97); opacity:0.88; }
+    /* 照片采集 */
+    .photo-area { display:flex; gap:12px; align-items:flex-start; }
+    .photo-preview { width:80px; height:80px; border-radius:12px; border:2px dashed #d9d9d9; display:flex; align-items:center; justify-content:center; overflow:hidden; flex-shrink:0; background:#fafafa; position:relative; cursor:pointer; transition:border-color 0.2s; }
+    .photo-preview:hover { border-color:#1677ff; }
+    .photo-preview img { width:100%; height:100%; object-fit:cover; }
+    .photo-preview .photo-placeholder { text-align:center; color:#bbb; font-size:11px; line-height:1.3; }
+    .photo-preview .photo-placeholder svg { display:block; margin:0 auto 4px; }
+    .photo-btns { display:flex; flex-direction:column; gap:6px; flex:1; }
+    .photo-btn { height:36px; border-radius:8px; border:1.5px solid #1677ff; background:white; color:#1677ff; font-size:12px; font-weight:500; cursor:pointer; transition:all 0.2s; }
+    .photo-btn:active { background:#e6f4ff; }
+    .photo-btn.danger { border-color:#ff4d4f; color:#ff4d4f; }
+    .photo-btn.danger:active { background:#fff2f0; }
     .scanner-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:999; flex-direction:column; align-items:center; justify-content:center; }
     .scanner-overlay.show { display:flex; }
     .scanner-box { width:90vw; max-width:380px; background:#111; border-radius:20px; overflow:hidden; position:relative; }
@@ -58,21 +72,22 @@
     @keyframes scanMove { 0%{top:0} 100%{top:calc(100% - 2px)} }
     .records-section .card-title { margin-bottom:10px; }
     .record-count { margin-left:auto; font-size:12px; color:#999; font-weight:400; }
-    .record-list { max-height:320px; overflow-y:auto; }
+    .record-list { max-height:400px; overflow-y:auto; }
     .record-item { border:1px solid #f0f0f0; border-radius:10px; padding:12px 14px; margin-bottom:8px; background:#fafafa; position:relative; }
     .record-item:last-child { margin-bottom:0; }
     .record-index { position:absolute; top:10px; right:12px; font-size:11px; color:#bbb; }
     .record-row { display:flex; align-items:center; gap:6px; margin-bottom:4px; }
     .record-row:last-child { margin-bottom:0; }
-    .record-label { font-size:11px; color:#999; min-width:42px; }
+    .record-label { font-size:11px; color:#999; min-width:56px; }
     .record-val { font-size:13px; color:#333; font-weight:500; word-break:break-all; }
+    .record-photo { width:36px; height:36px; border-radius:6px; object-fit:cover; vertical-align:middle; margin-right:6px; }
     .record-time { font-size:11px; color:#bbb; margin-top:6px; }
     .record-delete { position:absolute; bottom:10px; right:12px; color:#ff7875; font-size:12px; cursor:pointer; border:none; background:none; }
     .empty-state { text-align:center; padding:30px 0; color:#bbb; }
     .empty-state .icon { font-size:36px; margin-bottom:8px; }
     .empty-state p { font-size:13px; }
-    .action-bar { display:flex; gap:10px; margin-bottom:16px; }
-    .action-btn { flex:1; height:40px; border-radius:10px; border:1.5px solid #1677ff; background:white; color:#1677ff; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+    .action-bar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+    .action-btn { flex:1; min-width:80px; height:40px; border-radius:10px; border:1.5px solid #1677ff; background:white; color:#1677ff; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; }
     .action-btn:hover { background:#e6f4ff; }
     .action-btn.danger { border-color:#ff4d4f; color:#ff4d4f; }
     .action-btn.danger:hover { background:#fff2f0; }
@@ -104,7 +119,6 @@
     .chpwd-btn { width:100%; height:44px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:15px; font-weight:600; cursor:pointer; letter-spacing:1px; }
     .chpwd-btn:active { opacity:0.85; }
     .chpwd-cancel { width:100%; height:38px; border-radius:10px; border:none; background:#f5f5f5; color:#999; font-size:13px; cursor:pointer; margin-top:8px; }
-
     .search-box { display:flex; gap:8px; margin-bottom:12px; }
     .search-input { flex:1; height:38px; border:1.5px solid #e8e8e8; border-radius:10px; padding:0 12px; font-size:14px; outline:none; background:#fafafa; box-sizing:border-box; }
     .search-input:focus { border-color:#1677ff; background:white; }
@@ -124,7 +138,6 @@
     .trash-action-btn.danger { border-color:#ff4d4f; color:#ff4d4f; }
     .trash-action-btn.danger:hover { background:#fff2f0; }
     .record-restore { position:absolute; bottom:10px; right:56px; color:#1677ff; font-size:12px; cursor:pointer; border:none; background:none; }
-    /* ---- 自定义确认对话框 ---- */
     .confirm-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.55); z-index:1002; flex-direction:column; align-items:center; justify-content:center; }
     .confirm-overlay.show { display:flex; }
     .confirm-box { background:white; border-radius:20px; width:80vw; max-width:320px; padding:28px 24px 20px; box-shadow:0 12px 40px rgba(0,0,0,0.18); animation:popIn 0.25s ease; text-align:center; }
@@ -136,12 +149,17 @@
     .confirm-cancel:active { background:#e8e8e8; }
     .confirm-ok { flex:1; height:40px; border-radius:10px; border:none; background:linear-gradient(135deg,#1677ff,#0958d9); color:white; font-size:14px; cursor:pointer; font-weight:600; }
     .confirm-ok:active { opacity:0.85; }
+    /* 照片查看弹窗 */
+    .photo-view-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:1003; align-items:center; justify-content:center; }
+    .photo-view-overlay.show { display:flex; }
+    .photo-view-overlay img { max-width:90vw; max-height:80vh; border-radius:12px; }
+    .photo-view-close { position:absolute; top:20px; right:20px; color:white; font-size:28px; cursor:pointer; }
   </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>&#x1F4F1; 监考人员信息维护器</h1>
+  <h1>&#x1F4F1; 监考人员入库申请</h1>
   <p>支持扫描二维码 / 条形码自动录入</p>
   <button class="admin-entry" id="admin-entry-btn" onclick="handleAdminEntry()">&#x1F512; <span id="admin-entry-text">管理</span></button>
 </div>
@@ -154,7 +172,7 @@
 
   <div id="tab-input">
     <div class="card">
-      <div class="card-title">信息录入</div>
+      <div class="card-title">入库信息填写</div>
       <div class="field-group">
         <div class="field-label">&#x1F464; 姓名 <span style="color:#ff4d4f;font-size:13px;">*</span></div>
         <input id="name" class="field-input" type="text" maxlength="20" placeholder="请输入真实姓名（必填）" oninput="validateName()" autocomplete="off" />
@@ -165,11 +183,7 @@
         <div class="field-row">
           <input id="phone" class="field-input" type="tel" maxlength="11" placeholder="请输入或扫码获取" oninput="validatePhone()" autocomplete="off" />
           <button class="scan-btn" onclick="openScanner('phone')" title="扫码">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/>
-              <path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/>
-              <line x1="7" y1="12" x2="17" y2="12"/>
-            </svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/><path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
           </button>
         </div>
         <div id="phone-hint" class="validate-hint"></div>
@@ -179,36 +193,61 @@
         <div class="field-row">
           <input id="idcard" class="field-input" type="text" maxlength="18" placeholder="请输入或扫码获取" oninput="validateIdcard()" autocomplete="off" style="text-transform:uppercase;" />
           <button class="scan-btn" onclick="openScanner('idcard')" title="扫码">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-              <path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/>
-              <path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/>
-              <line x1="7" y1="12" x2="17" y2="12"/>
-            </svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7V5a2 2 0 012-2h2"/><path d="M17 3h2a2 2 0 012 2v2"/><path d="M21 17v2a2 2 0 01-2 2h-2"/><path d="M7 21H5a2 2 0 01-2-2v-2"/><line x1="7" y1="12" x2="17" y2="12"/></svg>
           </button>
         </div>
         <div id="idcard-hint" class="validate-hint"></div>
       </div>
       <div class="field-group">
+        <div class="field-label">&#x1F3AE; 学号/工号</div>
+        <input id="empno" class="field-input" type="text" maxlength="30" placeholder="请输入学号或工号" autocomplete="off" />
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F3E6; 工行卡号</div>
+        <input id="bankcard" class="field-input" type="text" maxlength="19" placeholder="请输入工商银行卡号" oninput="validateBankcard()" autocomplete="off" />
+        <div id="bankcard-hint" class="validate-hint"></div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F4F7; 照片采集</div>
+        <div class="photo-area">
+          <div class="photo-preview" id="photo-preview" onclick="document.getElementById('photo-file').click()">
+            <div class="photo-placeholder" id="photo-placeholder">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>
+              点击拍照/选图
+            </div>
+          </div>
+          <div class="photo-btns">
+            <button class="photo-btn" onclick="document.getElementById('photo-file').click()">&#x1F4F7; 拍照/选择照片</button>
+            <button class="photo-btn danger" onclick="clearPhoto()">&#x274C; 清除照片</button>
+          </div>
+          <input type="file" id="photo-file" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(event)" />
+        </div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">&#x1F4C4; 个人简历</div>
+        <textarea id="resume" class="field-textarea" maxlength="500" placeholder="请简要填写个人简历（学历、工作经历等）"></textarea>
+      </div>
+      <div class="field-group">
         <div class="field-label">&#x1F4DD; 备注（选填）</div>
         <input id="remark" class="field-input" type="text" maxlength="50" placeholder="部门、备注等附加信息" />
       </div>
-      <button class="submit-btn" onclick="submitRecord()">&#x2705; 保存记录</button>
+      <button class="submit-btn" onclick="submitRecord()">&#x2705; 提交申请</button>
     </div>
   </div>
 
   <div id="tab-records" style="display:none;">
     <div class="action-bar">
-      <button class="action-btn" onclick="exportCSV()">&#x2B07;&#xFE0F; 导出 CSV</button>
+      <button class="action-btn" onclick="exportCSV()">&#x2B07;&#xFE0F; 导出CSV</button>
       <button class="action-btn" onclick="copyAll()">&#x1F4CB; 复制全部</button>
       <button class="action-btn" onclick="openChangePwd()">&#x1F510; 改密码</button>
     </div>
     <div class="search-box">
-      <input id="search-input" class="search-input" type="text" placeholder="搜索姓名/手机号/身份证号/备注..." oninput="onSearch()" autocomplete="off" />
+      <input id="search-input" class="search-input" type="text" placeholder="搜索姓名/手机号/身份证/学号工号/工行卡号/备注..." oninput="onSearch()" autocomplete="off" />
       <button class="search-clear" onclick="clearSearch()" title="清除">&#x2715;</button>
     </div>
     <div class="card records-section">
       <div class="card-title">
-        录入记录
+        入库记录
         <span class="record-count" id="record-count">共 0 条</span>
       </div>
       <div class="record-list" id="record-list">
@@ -286,7 +325,7 @@
 <!-- 自定义确认对话框 -->
 <div class="confirm-overlay" id="confirm-overlay">
   <div class="confirm-box">
-    <div class="confirm-icon" id="confirm-icon">⚠️</div>
+    <div class="confirm-icon" id="confirm-icon">&#x26A0;&#xFE0F;</div>
     <div class="confirm-title" id="confirm-title">确认操作</div>
     <div class="confirm-msg" id="confirm-msg">确定执行此操作？</div>
     <div class="confirm-actions">
@@ -294,6 +333,12 @@
       <button class="confirm-ok" id="confirm-ok-btn" onclick="doConfirm()">确定</button>
     </div>
   </div>
+</div>
+
+<!-- 照片查看弹窗 -->
+<div class="photo-view-overlay" id="photo-view-overlay" onclick="closePhotoView()">
+  <span class="photo-view-close">&times;</span>
+  <img id="photo-view-img" src="" alt="照片" />
 </div>
 
 <script>
@@ -307,9 +352,8 @@ async function sha256(str) {
 /* ---- 管理员密码配置 ---- */
 var PWD_STORE_KEY = 'scan_tool_pwd_hash';
 var ADMIN_KEY     = 'scan_tool_admin';
-var DEFAULT_PWD   = 'admin123';  // 首次使用默认密码
+var DEFAULT_PWD   = 'admin123';
 
-/* 获取存储的密码哈希，若无则返回默认密码的哈希 */
 async function getStoredHash() {
   var stored = localStorage.getItem(PWD_STORE_KEY);
   if (stored) return stored;
@@ -318,7 +362,6 @@ async function getStoredHash() {
   return h;
 }
 
-/* 验证密码 */
 async function verifyPwd(pwd) {
   var h = await sha256(pwd);
   var stored = await getStoredHash();
@@ -394,19 +437,15 @@ async function doChangePwd() {
   var newPwd = document.getElementById('chpwd-new').value;
   var confirmPwd = document.getElementById('chpwd-confirm').value;
   var hint = document.getElementById('chpwd-hint');
-
   if (!oldPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入当前密码'; return; }
   if (!newPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入新密码'; return; }
   if (newPwd.length < 6) { hint.style.color = '#ff4d4f'; hint.textContent = '新密码至少6位'; return; }
   if (newPwd !== confirmPwd) { hint.style.color = '#ff4d4f'; hint.textContent = '两次输入的新密码不一致'; return; }
-
   var oldOk = await verifyPwd(oldPwd);
   if (!oldOk) { hint.style.color = '#ff4d4f'; hint.textContent = '当前密码错误'; return; }
-
   var newHash = await sha256(newPwd);
   localStorage.setItem(PWD_STORE_KEY, newHash);
   closeChangePwd();
-  // 修改密码后强制退出，需要重新登录
   sessionStorage.removeItem(ADMIN_KEY);
   updateLockUI();
   switchTab('input');
@@ -453,7 +492,6 @@ function switchTab(tab) {
   if (tab === 'input' && !isAdmin()) { document.getElementById('tab-records-btn').style.display = 'none'; }
 }
 
-/* ---- 权限检查 ---- */
 function requireAdmin() {
   if (!isAdmin()) { showToast('\u26A0\uFE0F 请先以管理员身份解锁'); return false; }
   return true;
@@ -507,6 +545,61 @@ function checkIdcard(id) {
   return c[s % 11] === id[17];
 }
 
+/* ---- 工行卡号校验 ---- */
+function validateBankcard() {
+  var el = document.getElementById('bankcard');
+  var hint = document.getElementById('bankcard-hint');
+  var v = el.value.replace(/\s/g,'');
+  if (!v) { el.className='field-input'; hint.textContent=''; return null; }
+  var ok = /^\d{16,19}$/.test(v);
+  el.className = 'field-input ' + (ok ? 'valid' : 'invalid');
+  hint.className = 'validate-hint ' + (ok ? 'hint-ok' : 'hint-err');
+  hint.textContent = ok ? '\u2713 卡号格式正确' : '\u2717 请输入16-19位银行卡号';
+  return ok;
+}
+
+/* ---- 照片采集 ---- */
+var currentPhotoData = '';
+function onPhotoSelected(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { showToast('\u26A0\uFE0F 照片不能超过5MB'); return; }
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    /* 压缩照片到合理大小 */
+    var img = new Image();
+    img.onload = function() {
+      var canvas = document.createElement('canvas');
+      var maxW = 400;
+      var scale = Math.min(maxW / img.width, 1);
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      currentPhotoData = canvas.toDataURL('image/jpeg', 0.7);
+      var preview = document.getElementById('photo-preview');
+      preview.innerHTML = '<img src="' + currentPhotoData + '" />';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+}
+function clearPhoto() {
+  currentPhotoData = '';
+  var preview = document.getElementById('photo-preview');
+  preview.innerHTML = '<div class="photo-placeholder" id="photo-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>点击拍照/选图</div>';
+}
+
+/* ---- 照片查看 ---- */
+function viewPhoto(src) {
+  document.getElementById('photo-view-img').src = src;
+  document.getElementById('photo-view-overlay').classList.add('show');
+}
+function closePhotoView() {
+  document.getElementById('photo-view-overlay').classList.remove('show');
+}
+
 /* ---- 扫码 ---- */
 var html5QrCode = null;
 var currentScanTarget = null;
@@ -551,25 +644,41 @@ var trashRecords = JSON.parse(localStorage.getItem('scan_trash_records') || '[]'
 var searchKeyword = ''; var trashOpen = false;
 
 function submitRecord() {
-  var name   = document.getElementById('name').value.trim();
-  var phone  = document.getElementById('phone').value.trim();
-  var idcard = document.getElementById('idcard').value.trim().toUpperCase();
-  var remark = document.getElementById('remark').value.trim();
+  var name     = document.getElementById('name').value.trim();
+  var phone    = document.getElementById('phone').value.trim();
+  var idcard   = document.getElementById('idcard').value.trim().toUpperCase();
+  var empno    = document.getElementById('empno').value.trim();
+  var bankcard = document.getElementById('bankcard').value.trim().replace(/\s/g,'');
+  var resume   = document.getElementById('resume').value.trim();
+  var remark   = document.getElementById('remark').value.trim();
   if (!name)           { showToast('\u26A0\uFE0F 请填写姓名');   document.getElementById('name').focus(); return; }
   if (name.length < 2) { showToast('\u26A0\uFE0F 姓名至少2个字'); return; }
   if (!phone && !idcard) { showToast('\u26A0\uFE0F 请至少填写手机号或身份证号'); return; }
   if (phone && !/^1[3-9]\d{9}$/.test(phone)) { showToast('\u26A0\uFE0F 手机号格式有误'); return; }
   if (idcard && !checkIdcard(idcard))           { showToast('\u26A0\uFE0F 身份证号格式有误'); return; }
-  records.unshift({ id:Date.now(), name:name, phone:phone, idcard:idcard, remark:remark, time:new Date().toLocaleString('zh-CN') });
-  localStorage.setItem('scan_records', JSON.stringify(records));
-  ['name','phone','idcard','remark'].forEach(function(id){
-    document.getElementById(id).value = ''; document.getElementById(id).className = 'field-input';
+  if (bankcard && !/^\d{16,19}$/.test(bankcard)) { showToast('\u26A0\uFE0F 工行卡号格式有误'); return; }
+  records.unshift({
+    id: Date.now(),
+    name: name,
+    phone: phone,
+    idcard: idcard,
+    empno: empno,
+    bankcard: bankcard,
+    photo: currentPhotoData,
+    resume: resume,
+    remark: remark,
+    time: new Date().toLocaleString('zh-CN')
   });
-  ['name-hint','phone-hint','idcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
-  showToast('\u2705 保存成功\uFF01');
+  localStorage.setItem('scan_records', JSON.stringify(records));
+  ['name','phone','idcard','empno','bankcard','resume','remark'].forEach(function(id){
+    document.getElementById(id).value = ''; document.getElementById(id).className = id === 'resume' ? 'field-textarea' : 'field-input';
+  });
+  ['name-hint','phone-hint','idcard-hint','bankcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
+  clearPhoto();
+  showToast('\u2705 提交成功！');
 }
 
-/* ---- 渲染记录（需管理员）---- */
+/* ---- 渲染记录 ---- */
 function renderRecords() {
   if (!isAdmin()) return;
   var list = document.getElementById('record-list');
@@ -580,6 +689,8 @@ function renderRecords() {
       return (r.name||'').toLowerCase().indexOf(kw) >= 0 ||
              (r.phone||'').indexOf(kw) >= 0 ||
              (r.idcard||'').toUpperCase().indexOf(kw.toUpperCase()) >= 0 ||
+             (r.empno||'').toLowerCase().indexOf(kw) >= 0 ||
+             (r.bankcard||'').indexOf(kw) >= 0 ||
              (r.remark||'').toLowerCase().indexOf(kw) >= 0;
     });
   }
@@ -595,10 +706,14 @@ function renderRecords() {
     var idx = records.length - records.indexOf(r);
     html += '<div class="record-item">';
     html += '<span class="record-index">#' + idx + '</span>';
+    if (r.photo) html += '<div class="record-row"><span class="record-label">\u7167\u7247</span><span class="record-val"><img class="record-photo" src="' + r.photo + '" onclick="viewPhoto(this.src)" /></span></div>';
     html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + highlightText(r.name||'-') + '</span></div>';
-    if (r.phone)  html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(r.phone) + '</span></div>';
-    if (r.idcard) html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(r.idcard) + '</span></div>';
-    if (r.remark) html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + highlightText(r.remark) + '</span></div>';
+    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(r.phone) + '</span></div>';
+    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(r.idcard) + '</span></div>';
+    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + highlightText(r.empno) + '</span></div>';
+    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + highlightText(r.bankcard) + '</span></div>';
+    if (r.resume)   html += '<div class="record-row"><span class="record-label">\u7b80\u5386</span><span class="record-val" style="white-space:pre-wrap;">' + highlightText(r.resume.length > 60 ? r.resume.substring(0,60) + '...' : r.resume) + '</span></div>';
+    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + highlightText(r.remark) + '</span></div>';
     html += '<div class="record-time">' + r.time + '</div>';
     html += '<button class="record-delete" onclick="if(requireAdmin())deleteRecord(' + r.id + ')">\u5220\u9664</button>';
     html += '</div>';
@@ -630,7 +745,7 @@ function deleteRecord(id) {
   localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
   renderRecords();
   updateTrashCount();
-  showToast('✅ 已移入回收站');
+  showToast('\u2705 已移入回收站');
 }
 
 function toggleTrash() {
@@ -661,9 +776,11 @@ function renderTrash() {
     html += '<div class="record-item">';
     html += '<span class="record-index">#' + idx + '</span>';
     html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + (r.name||'-') + '</span></div>';
-    if (r.phone)  html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + r.phone + '</span></div>';
-    if (r.idcard) html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + r.idcard + '</span></div>';
-    if (r.remark) html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + r.remark + '</span></div>';
+    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + r.phone + '</span></div>';
+    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + r.idcard + '</span></div>';
+    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + r.empno + '</span></div>';
+    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + r.bankcard + '</span></div>';
+    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + r.remark + '</span></div>';
     html += '<div class="record-time">' + r.time + '</div>';
     html += '<button class="record-restore" onclick="if(requireAdmin())restoreRecord(' + r.id + ')">\u21a9\ufe0f \u6062\u590d</button>';
     html += '<button class="record-delete" onclick="if(requireAdmin())permanentDelete(' + r.id + ')">\ud83d\uddd1\ufe0f \u5f7b\u5e95\u5220\u9664</button>';
@@ -687,14 +804,15 @@ function restoreRecord(id) {
 function restoreAll() {
   if (!requireAdmin()) return;
   if (!trashRecords.length) { showToast('\u56de\u6536\u7ad9\u4e3a\u7a7a'); return; }
-  if (!confirm('\u786e\u5b9a\u6062\u590d\u5168\u90e8 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\uff1f')) return;
-  records = trashRecords.concat(records);
-  trashRecords = [];
-  localStorage.setItem('scan_records', JSON.stringify(records));
-  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-  renderRecords();
-  renderTrash();
-  showToast('\u2705 \u5df2\u5168\u90e8\u6062\u590d');
+  showConfirm('\u6062\u590d\u5168\u90e8', '\u786e\u5b9a\u6062\u590d\u5168\u90e8 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\uff1f', function(){
+    records = trashRecords.concat(records);
+    trashRecords = [];
+    localStorage.setItem('scan_records', JSON.stringify(records));
+    localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+    renderRecords();
+    renderTrash();
+    showToast('\u2705 \u5df2\u5168\u90e8\u6062\u590d');
+  });
 }
 
 function permanentDelete(id) {
@@ -708,29 +826,39 @@ function permanentDelete(id) {
 function emptyTrash() {
   if (!requireAdmin()) return;
   if (!trashRecords.length) { showToast('\u56de\u6536\u7ad9\u4e3a\u7a7a'); return; }
-  if (!confirm('\u786e\u5b9a\u6e05\u7a7a\u56de\u6536\u7ad9\uff1f\u5171 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\u5c06\u88ab\u5f7b\u5e95\u5220\u9664\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\uff01')) return;
-  trashRecords = [];
-  localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-  renderTrash();
-  showToast('\u5df2\u6e05\u7a7a\u56de\u6536\u7ad9');
+  showConfirm('\u6e05\u7a7a\u56de\u6536\u7ad9', '\u786e\u5b9a\u6e05\u7a7a\u56de\u6536\u7ad9\uff1f\u5171 ' + trashRecords.length + ' \u6761\u8bb0\u5f55\u5c06\u88ab\u5f7b\u5e95\u5220\u9664\uff0c\u6b64\u64cd\u4f5c\u4e0d\u53ef\u6062\u590d\uff01', function(){
+    trashRecords = [];
+    localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+    renderTrash();
+    showToast('\u5df2\u6e05\u7a7a\u56de\u6536\u7ad9');
+  });
 }
+
 function exportCSV() {
   if (!requireAdmin()) return;
   if (!records.length) { showToast('\u6682\u65E0\u8BB0\u5F55\u53EF\u5BFC\u51FA'); return; }
   var BOM = '\uFEFF';
-  var header = '\u5E8F\u53F7,\u59D3\u540D,\u624B\u673A\u53F7,\u8EAB\u4EFD\u8BC1\u53F7,\u5907\u6CE8,\u5F55\u5165\u65F6\u95F4\n';
+  var header = '\u5E8F\u53F7,\u59D3\u540D,\u624B\u673A\u53F7,\u8EAB\u4EFD\u8BC1\u53F7,\u5B66\u53F7/\u5DE5\u53F7,\u5DE5\u884C\u5361\u53F7,\u7B80\u5386,\u5907\u6CE8,\u5F55\u5165\u65F6\u95F4\n';
   var rows = [];
   for (var i = 0; i < records.length; i++) {
     var r = records[i];
-    rows.push((records.length - i) + ',' + (r.name||'') + ',' + (r.phone||'') + ',' + (r.idcard||'') + ',' + (r.remark||'') + ',' + r.time);
+    rows.push((records.length - i) + ',' + csvEscape(r.name) + ',' + csvEscape(r.phone) + ',' + csvEscape(r.idcard) + ',' + csvEscape(r.empno) + ',' + csvEscape(r.bankcard) + ',' + csvEscape(r.resume) + ',' + csvEscape(r.remark) + ',' + csvEscape(r.time));
   }
   var blob = new Blob([BOM + header + rows.join('\n')], { type:'text/csv;charset=utf-8' });
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = '\u5F55\u5165\u6570\u636E_' + new Date().toLocaleDateString('zh-CN').replace(/\//g,'-') + '.csv';
+  a.download = '\u5165\u5E93\u6570\u636E_' + new Date().toLocaleDateString('zh-CN').replace(/\//g,'-') + '.csv';
   a.click(); URL.revokeObjectURL(url);
   showToast('\u2705 CSV \u5DF2\u5BFC\u51FA');
+}
+function csvEscape(v) {
+  if (!v) return '';
+  v = String(v);
+  if (v.indexOf(',') >= 0 || v.indexOf('"') >= 0 || v.indexOf('\n') >= 0) {
+    return '"' + v.replace(/"/g, '""') + '"';
+  }
+  return v;
 }
 
 function copyAll() {
@@ -740,10 +868,13 @@ function copyAll() {
   for (var i = 0; i < records.length; i++) {
     var r = records[i];
     var p = ['[' + (records.length - i) + ']'];
-    if (r.name)   p.push('\u59D3\u540D: ' + r.name);
-    if (r.phone)  p.push('\u624B\u673A\u53F7: ' + r.phone);
-    if (r.idcard) p.push('\u8EAB\u4EFD\u8BC1: ' + r.idcard);
-    if (r.remark) p.push('\u5907\u6CE8: ' + r.remark);
+    if (r.name)     p.push('\u59D3\u540D: ' + r.name);
+    if (r.phone)    p.push('\u624B\u673A: ' + r.phone);
+    if (r.idcard)   p.push('\u8EAB\u4EFD\u8BC1: ' + r.idcard);
+    if (r.empno)    p.push('\u5B66\u53F7/\u5DE5\u53F7: ' + r.empno);
+    if (r.bankcard) p.push('\u5DE5\u884C\u5361: ' + r.bankcard);
+    if (r.resume)   p.push('\u7B80\u5386: ' + r.resume);
+    if (r.remark)   p.push('\u5907\u6CE8: ' + r.remark);
     p.push('\u65F6\u95F4: ' + r.time);
     text.push(p.join('  |  '));
   }
