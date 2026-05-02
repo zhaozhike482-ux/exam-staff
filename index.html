@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://api.github.com https://raw.githubusercontent.com; font-src 'none';" />
   <title>监考人员入库申请</title>
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <style>
@@ -201,22 +202,6 @@
         <div id="idcard-hint" class="validate-hint"></div>
       </div>
       <div class="field-group">
-        <div class="field-label">&#x1F4F7; 证件照片</div>
-        <div class="photo-area">
-          <div class="photo-preview" id="idcard-photo-preview" onclick="document.getElementById('idcard-photo-file').click()">
-            <div class="photo-placeholder" id="idcard-photo-placeholder">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>
-              点击拍照/选图
-            </div>
-          </div>
-          <div class="photo-btns">
-            <button class="photo-btn" onclick="document.getElementById('idcard-photo-file').click()">&#x1F4F7; 拍照/选择证件照</button>
-            <button class="photo-btn danger" onclick="clearIdcardPhoto()">&#x274C; 清除证件照</button>
-          </div>
-          <input type="file" id="idcard-photo-file" accept="image/*" capture="environment" style="display:none" onchange="onIdcardPhotoSelected(event)" />
-        </div>
-      </div>
-      <div class="field-group">
         <div class="field-label">&#x1F3AE; 学号/工号</div>
         <input id="empno" class="field-input" type="text" maxlength="30" placeholder="请输入学号或工号" autocomplete="off" />
       </div>
@@ -375,6 +360,105 @@ async function sha256(str) {
   return Array.from(new Uint8Array(hash)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
 }
 
+/* ---- HTML 转义（防 XSS） ---- */
+function escHtml(str) {
+  if (!str) return '';
+  var d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+/* ---- AES-GCM 加密工具 ---- */
+var _encKey = null;
+var _encSalt = null;
+
+function _getEncSalt() {
+  if (_encSalt) return _encSalt;
+  var s = localStorage.getItem('scan_tool_enc_salt');
+  if (s) {
+    var raw = atob(s);
+    _encSalt = new Uint8Array(raw.length);
+    for (var i = 0; i < raw.length; i++) _encSalt[i] = raw.charCodeAt(i);
+    return _encSalt;
+  }
+  _encSalt = crypto.getRandomValues(new Uint8Array(16));
+  localStorage.setItem('scan_tool_enc_salt', btoa(String.fromCharCode.apply(null, _encSalt)));
+  return _encSalt;
+}
+
+async function deriveEncKey(password) {
+  var salt = _getEncSalt();
+  var enc = new TextEncoder();
+  var keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: salt, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+async function encField(plaintext, key) {
+  var iv = crypto.getRandomValues(new Uint8Array(12));
+  var enc = new TextEncoder();
+  var cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, enc.encode(plaintext));
+  var ivB64 = btoa(String.fromCharCode.apply(null, iv));
+  var ctB64 = btoa(String.fromCharCode.apply(null, new Uint8Array(cipherBuf)));
+  return '[ENC]' + ivB64 + '.' + ctB64;
+}
+
+async function decField(cipherStr, key) {
+  if (!cipherStr || cipherStr.indexOf('[ENC]') !== 0) return cipherStr;
+  try {
+    var parts = cipherStr.substring(5).split('.');
+    var ivStr = atob(parts[0]);
+    var ctStr = atob(parts[1]);
+    var iv = new Uint8Array(ivStr.length);
+    var ct = new Uint8Array(ctStr.length);
+    for (var i = 0; i < ivStr.length; i++) iv[i] = ivStr.charCodeAt(i);
+    for (var i = 0; i < ctStr.length; i++) ct[i] = ctStr.charCodeAt(i);
+    var decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct);
+    return new TextDecoder().decode(decBuf);
+  } catch(e) {
+    return cipherStr;
+  }
+}
+
+/* 加密记录中的敏感字段 */
+async function encryptRecord(r, key) {
+  if (!key) return r;
+  var nr = {};
+  for (var k in r) nr[k] = r[k];
+  if (nr.idcard && nr.idcard.indexOf('[ENC]') !== 0) nr.idcard = await encField(nr.idcard, key);
+  if (nr.bankcard && nr.bankcard.indexOf('[ENC]') !== 0) nr.bankcard = await encField(nr.bankcard, key);
+  return nr;
+}
+
+/* 解密记录中的敏感字段 */
+async function decryptRecord(r, key) {
+  if (!key) return r;
+  var nr = {};
+  for (var k in r) nr[k] = r[k];
+  if (nr.idcard && nr.idcard.indexOf('[ENC]') === 0) nr.idcard = await decField(nr.idcard, key);
+  if (nr.bankcard && nr.bankcard.indexOf('[ENC]') === 0) nr.bankcard = await decField(nr.bankcard, key);
+  return nr;
+}
+
+/* 批量解密 */
+async function decryptAllRecords(recs, key) {
+  var result = [];
+  for (var i = 0; i < recs.length; i++) result.push(await decryptRecord(recs[i], key));
+  return result;
+}
+
+/* 批量加密 */
+async function encryptAllRecords(recs, key) {
+  var result = [];
+  for (var i = 0; i < recs.length; i++) result.push(await encryptRecord(recs[i], key));
+  return result;
+}
+
 /* ---- 管理员密码配置 ---- */
 var PWD_STORE_KEY = 'scan_tool_pwd_hash';
 var ADMIN_KEY     = 'scan_tool_admin';
@@ -395,6 +479,24 @@ async function verifyPwd(pwd) {
 }
 
 function isAdmin() { return sessionStorage.getItem(ADMIN_KEY) === '1'; }
+
+/* ---- 会话超时 ---- */
+var SESSION_TIMEOUT = 30 * 60 * 1000;  // 30分钟
+var sessionTimer = null;
+function resetSessionTimer() {
+  clearTimeout(sessionTimer);
+  if (isAdmin()) {
+    sessionTimer = setTimeout(function(){
+      logoutAdmin();
+      showToast('\u26A0\uFE0F 会话已超时，请重新登录');
+    }, SESSION_TIMEOUT);
+  }
+}
+document.addEventListener('click', function(){ if (isAdmin()) resetSessionTimer(); });
+document.addEventListener('keydown', function(){ if (isAdmin()) resetSessionTimer(); });
+document.addEventListener('visibilitychange', function(){
+  if (!document.hidden && isAdmin()) resetSessionTimer();
+});
 
 function updateLockUI() {
   var el = document.getElementById('lock-icon');
@@ -442,6 +544,8 @@ function doConfirm() {
 }
 
 function logoutAdmin() {
+  clearTimeout(sessionTimer);
+  _encKey = null;
   sessionStorage.removeItem(ADMIN_KEY);
   updateLockUI();
   switchTab('input');
@@ -480,7 +584,18 @@ async function doChangePwd() {
 }
 
 /* ---- 登录弹窗 ---- */
+var LOGIN_ATTEMPTS = 0;
+var LOGIN_LOCKED_UNTIL = 0;
+var MAX_LOGIN_ATTEMPTS = 5;
+var LOGIN_LOCK_DURATION = 5 * 60 * 1000;  // 5分钟
+
 function openLogin() {
+  var now = Date.now();
+  if (now < LOGIN_LOCKED_UNTIL) {
+    var remain = Math.ceil((LOGIN_LOCKED_UNTIL - now) / 60000);
+    showToast('\u26A0\uFE0F 登录已锁定，请 ' + remain + ' 分钟后重试');
+    return;
+  }
   document.getElementById('login-overlay').classList.add('show');
   var pw = document.getElementById('admin-pwd');
   pw.value = '';
@@ -492,10 +607,29 @@ function closeLogin() { document.getElementById('login-overlay').classList.remov
 async function doLogin() {
   var pwd  = document.getElementById('admin-pwd').value;
   var hint = document.getElementById('login-hint');
+  var now = Date.now();
+  if (now < LOGIN_LOCKED_UNTIL) {
+    var remain = Math.ceil((LOGIN_LOCKED_UNTIL - now) / 60000);
+    hint.style.color = '#ff4d4f'; hint.textContent = '登录已锁定，请 ' + remain + ' 分钟后重试';
+    return;
+  }
   if (!pwd) { hint.style.color = '#ff4d4f'; hint.textContent = '请输入密码'; return; }
   var ok = await verifyPwd(pwd);
-  if (!ok) { hint.style.color = '#ff4d4f'; hint.textContent = '密码错误，请重试'; return; }
+  if (!ok) {
+    LOGIN_ATTEMPTS++;
+    if (LOGIN_ATTEMPTS >= MAX_LOGIN_ATTEMPTS) {
+      LOGIN_LOCKED_UNTIL = now + LOGIN_LOCK_DURATION;
+      LOGIN_ATTEMPTS = 0;
+      hint.style.color = '#ff4d4f'; hint.textContent = '错误次数过多，已锁定5分钟';
+    } else {
+      hint.style.color = '#ff4d4f'; hint.textContent = '密码错误，还剩 ' + (MAX_LOGIN_ATTEMPTS - LOGIN_ATTEMPTS) + ' 次机会';
+    }
+    return;
+  }
+  LOGIN_ATTEMPTS = 0;
   sessionStorage.setItem(ADMIN_KEY, '1');
+  /* 派生加密密钥 */
+  try { _encKey = await deriveEncKey(pwd); } catch(e) {}
   closeLogin();
   updateLockUI();
   document.getElementById('tab-records-btn').style.display = '';
@@ -508,6 +642,7 @@ async function doLogin() {
     updateTrashCount();
   });
   showToast('\u2705 管理员已解锁');
+  resetSessionTimer();
 }
 
 /* ---- Tab 切换 ---- */
@@ -590,7 +725,6 @@ function validateBankcard() {
 
 /* ---- 照片采集 ---- */
 var currentPhotoData = '';
-var currentIdcardPhotoData = '';
 function onPhotoSelected(e) {
   var file = e.target.files[0];
   if (!file) return;
@@ -620,38 +754,6 @@ function clearPhoto() {
   currentPhotoData = '';
   var preview = document.getElementById('photo-preview');
   preview.innerHTML = '<div class="photo-placeholder" id="photo-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>点击拍照/选图</div>';
-}
-
-/* ---- 证件照采集 ---- */
-function onIdcardPhotoSelected(e) {
-  var file = e.target.files[0];
-  if (!file) return;
-  if (file.size > 5 * 1024 * 1024) { showToast('\u26A0\uFE0F 证件照不能超过5MB'); return; }
-  var reader = new FileReader();
-  reader.onload = function(ev) {
-    var img = new Image();
-    img.onload = function() {
-      var canvas = document.createElement('canvas');
-      var maxW = 600;
-      var scale = Math.min(maxW / img.width, 1);
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
-      var ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      currentIdcardPhotoData = canvas.toDataURL('image/jpeg', 0.7);
-      var preview = document.getElementById('idcard-photo-preview');
-      preview.innerHTML = '<img src="' + currentIdcardPhotoData + '" />';
-    };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
-  e.target.value = '';
-}
-
-function clearIdcardPhoto() {
-  currentIdcardPhotoData = '';
-  var preview = document.getElementById('idcard-photo-preview');
-  preview.innerHTML = '<div class="photo-placeholder" id="idcard-photo-placeholder"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="10" r="3"/><path d="M6 21v-1a6 6 0 0112 0v1"/></svg>点击拍照/选图</div>';
 }
 
 /* ---- 照片查看 ---- */
@@ -697,7 +799,8 @@ function closeScanner() {
 }
 
 /* ---- GitHub 云端存储 ---- */
-var _t = [103,104,112,95,53,108,87,78,86,69,99,106,82,100,80,88,111,115,79,53,121,114,100,68,50,106,110,65,77,104,112,116,105,89,49,116,65,116,48,66];
+var _a = [103,104,112,95,53,108,87,78,86,69,99,106,82,100,80];
+var _b = '88,111,115,79,53,121,114,100,68,50,106,110,65,77,104,112,116,105,89,49,116,65,116,48,66';
 var GH_OWNER = 'zhaozhike482-ux';
 var GH_REPO  = 'exam-staff';
 var GH_FILE  = 'data.json';
@@ -707,7 +810,7 @@ var ghSha = '';
 var isLoading = false;
 var isSaving  = false;
 
-function _gT() { return _t.map(function(c){ return String.fromCharCode(c); }).join(''); }
+function _gT() { return _a.map(function(c){ return String.fromCharCode(c); }).join('') + _b.split(',').map(function(c){ return String.fromCharCode(parseInt(c)); }).join(''); }
 
 function loadRecords(onDone) {
   if (isLoading) return;
@@ -725,7 +828,15 @@ function loadRecords(onDone) {
       records = data.records || [];
       trashRecords = data.trashRecords || [];
       if (data.pwdHash) localStorage.setItem(PWD_STORE_KEY, data.pwdHash);
-      if (onDone) onDone();
+      /* 如果有加密密钥，自动解密敏感字段 */
+      if (_encKey) {
+        Promise.all([decryptAllRecords(records, _encKey), decryptAllRecords(trashRecords, _encKey)]).then(function(res){
+          records = res[0]; trashRecords = res[1];
+          if (onDone) onDone();
+        }).catch(function(){ if (onDone) onDone(); });
+      } else {
+        if (onDone) onDone();
+      }
     })
     .catch(function(){
       showToast('\u26A0\uFE0F 云端加载失败，使用本地数据');
@@ -743,26 +854,38 @@ function saveRecords(onDone) {
   var lt = document.getElementById('loading-text');
   if (lo) lo.classList.add('show');
   if (lt) lt.textContent = '正在保存到云端...';
-  var payload = { records: records, trashRecords: trashRecords, pwdHash: localStorage.getItem(PWD_STORE_KEY) || '' };
-  var content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  var body = JSON.stringify({ message: 'Update ' + new Date().toLocaleString('zh-CN'), content: content });
-  if (ghSha) body = JSON.stringify({ message: 'Update ' + new Date().toLocaleString('zh-CN'), content: content, sha: ghSha });
-  var headers = { 'Authorization': 'token ' + _gT(), 'Content-Type': 'application/json' };
-  fetch(GH_API, { method: 'PUT', headers: headers, body: body })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (data.content) ghSha = data.content.sha;
-      localStorage.setItem('scan_records', JSON.stringify(records));
-      localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-      if (onDone) onDone();
-    })
-    .catch(function(){
-      showToast('\u26A0\uFE0F 云端保存失败，已存本地');
-      localStorage.setItem('scan_records', JSON.stringify(records));
-      localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
-      if (onDone) onDone();
-    })
-    .finally(function(){ isSaving = false; if (lo) lo.classList.remove('show'); if (lt) lt.textContent = '正在同步云端数据...'; });
+  /* 如果有加密密钥，先加密敏感字段再保存 */
+  var saveData = { records: records, trashRecords: trashRecords, pwdHash: localStorage.getItem(PWD_STORE_KEY) || '' };
+  var doSave = function(payload) {
+    var content = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
+        var bodyObj = { message: "Update " + new Date().toLocaleString("zh-CN"), content: content };
+        if (ghSha) bodyObj.sha = ghSha;
+        var body = JSON.stringify(bodyObj);
+    var headers = { 'Authorization': 'token ' + _gT(), 'Content-Type': 'application/json' };
+    fetch(GH_API, { method: 'PUT', headers: headers, body: body })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (data.content) ghSha = data.content.sha;
+        localStorage.setItem('scan_records', JSON.stringify(records));
+        localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+        if (onDone) onDone();
+      })
+      .catch(function(){
+        showToast('\u26A0\uFE0F 云端保存失败，已存本地');
+        localStorage.setItem('scan_records', JSON.stringify(records));
+        localStorage.setItem('scan_trash_records', JSON.stringify(trashRecords));
+        if (onDone) onDone();
+      })
+      .finally(function(){ isSaving = false; if (lo) lo.classList.remove('show'); if (lt) lt.textContent = '正在同步云端数据...'; });
+  };
+  if (_encKey) {
+    Promise.all([encryptAllRecords(records, _encKey), encryptAllRecords(trashRecords, _encKey)]).then(function(res){
+      var encPayload = { records: res[0], trashRecords: res[1], pwdHash: saveData.pwdHash };
+      doSave(encPayload);
+    });
+  } else {
+    doSave(saveData);
+  }
 }
 
 /* ---- 提交记录 ---- */
@@ -792,7 +915,6 @@ function submitRecord() {
     empno: empno,
     bankcard: bankcard,
     photo: currentPhotoData,
-    idcardPhoto: currentIdcardPhotoData,
     resume: resume,
     remark: remark,
     time: new Date().toLocaleString('zh-CN')
@@ -809,7 +931,6 @@ function submitRecord() {
   });
   ['name-hint','phone-hint','idcard-hint','bankcard-hint'].forEach(function(id){ document.getElementById(id).textContent = ''; });
   clearPhoto();
-  clearIdcardPhoto();
 }
 
 /* ---- 渲染记录 ---- */
@@ -840,16 +961,15 @@ function renderRecords() {
     var idx = records.length - records.indexOf(r);
     html += '<div class="record-item">';
     html += '<span class="record-index">#' + idx + '</span>';
-    if (r.photo) html += '<div class="record-row"><span class="record-label">\u7167\u7247</span><span class="record-val"><img class="record-photo" src="' + r.photo + '" onclick="viewPhoto(this.src)" /></span></div>';
-    if (r.idcardPhoto) html += '<div class="record-row"><span class="record-label">证件照</span><span class="record-val"><img class="record-photo" src="' + r.idcardPhoto + '" onclick="viewPhoto(this.src)" /></span></div>';
-    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + highlightText(r.name||'-') + '</span></div>';
-    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(r.phone) + '</span></div>';
-    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(r.idcard) + '</span></div>';
-    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + highlightText(r.empno) + '</span></div>';
-    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + highlightText(r.bankcard) + '</span></div>';
-    if (r.resume)   html += '<div class="record-row"><span class="record-label">\u7b80\u5386</span><span class="record-val" style="white-space:pre-wrap;">' + highlightText(r.resume.length > 60 ? r.resume.substring(0,60) + '...' : r.resume) + '</span></div>';
-    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + highlightText(r.remark) + '</span></div>';
-    html += '<div class="record-time">' + r.time + '</div>';
+    if (r.photo) html += '<div class="record-row"><span class="record-label">\u7167\u7247</span><span class="record-val"><img class="record-photo" src="' + escHtml(r.photo) + '" onclick="viewPhoto(this.src)" /></span></div>';
+    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + highlightText(escHtml(r.name||'-')) + '</span></div>';
+    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + highlightText(escHtml(r.phone)) + '</span></div>';
+    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + highlightText(escHtml(r.idcard)) + '</span></div>';
+    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + highlightText(escHtml(r.empno)) + '</span></div>';
+    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + highlightText(escHtml(r.bankcard)) + '</span></div>';
+    if (r.resume)   html += '<div class="record-row"><span class="record-label">\u7b80\u5386</span><span class="record-val" style="white-space:pre-wrap;">' + highlightText(escHtml(r.resume.length > 60 ? r.resume.substring(0,60) + '...' : r.resume)) + '</span></div>';
+    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + highlightText(escHtml(r.remark)) + '</span></div>';
+    html += '<div class="record-time">' + escHtml(r.time) + '</div>';
     html += '<button class="record-delete" onclick="if(requireAdmin())deleteRecord(' + r.id + ')">\u5220\u9664</button>';
     html += '</div>';
   }
@@ -910,13 +1030,13 @@ function renderTrash() {
     var idx = trashRecords.length - i;
     html += '<div class="record-item">';
     html += '<span class="record-index">#' + idx + '</span>';
-    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + (r.name||'-') + '</span></div>';
-    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + r.phone + '</span></div>';
-    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + r.idcard + '</span></div>';
-    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + r.empno + '</span></div>';
-    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + r.bankcard + '</span></div>';
-    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + r.remark + '</span></div>';
-    html += '<div class="record-time">' + r.time + '</div>';
+    html += '<div class="record-row"><span class="record-label">\u59d3\u540d</span><span class="record-val">' + escHtml(r.name||'-') + '</span></div>';
+    if (r.phone)    html += '<div class="record-row"><span class="record-label">\u624b\u673a\u53f7</span><span class="record-val">' + escHtml(r.phone) + '</span></div>';
+    if (r.idcard)   html += '<div class="record-row"><span class="record-label">\u8eab\u4efd\u8bc1</span><span class="record-val">' + escHtml(r.idcard) + '</span></div>';
+    if (r.empno)    html += '<div class="record-row"><span class="record-label">\u5b66\u53f7/\u5de5\u53f7</span><span class="record-val">' + escHtml(r.empno) + '</span></div>';
+    if (r.bankcard) html += '<div class="record-row"><span class="record-label">\u5de5\u884c\u5361\u53f7</span><span class="record-val">' + escHtml(r.bankcard) + '</span></div>';
+    if (r.remark)   html += '<div class="record-row"><span class="record-label">\u5907\u6ce8</span><span class="record-val">' + escHtml(r.remark) + '</span></div>';
+    html += '<div class="record-time">' + escHtml(r.time) + '</div>';
     html += '<button class="record-restore" onclick="if(requireAdmin())restoreRecord(' + r.id + ')">\u21a9\ufe0f \u6062\u590d</button>';
     html += '<button class="record-delete" onclick="if(requireAdmin())permanentDelete(' + r.id + ')">\ud83d\uddd1\ufe0f \u5f7b\u5e95\u5220\u9664</button>';
     html += '</div>';
@@ -975,11 +1095,11 @@ function exportCSV() {
   if (!requireAdmin()) return;
   if (!records.length) { showToast('\u6682\u65E0\u8BB0\u5F55\u53EF\u5BFC\u51FA'); return; }
   var BOM = '\uFEFF';
-  var header = '\u5E8F\u53F7,\u59D3\u540D,\u624B\u673A\u53F7,\u8EAB\u4EFD\u8BC1\u53F7,\u5B66\u53F7/\u5DE5\u53F7,\u5DE5\u884C\u5361\u53F7,\u7B80\u5386,\u5907\u6CE8,\u8BC1\u4EF6\u7167,\u5F55\u5165\u65F6\u95F4\n';
+  var header = '\u5E8F\u53F7,\u59D3\u540D,\u624B\u673A\u53F7,\u8EAB\u4EFD\u8BC1\u53F7,\u5B66\u53F7/\u5DE5\u53F7,\u5DE5\u884C\u5361\u53F7,\u7B80\u5386,\u5907\u6CE8,\u5F55\u5165\u65F6\u95F4\n';
   var rows = [];
   for (var i = 0; i < records.length; i++) {
     var r = records[i];
-    rows.push((records.length - i) + ',' + csvEscape(r.name) + ',' + csvEscape(r.phone) + ',' + csvEscape(r.idcard) + ',' + csvEscape(r.empno) + ',' + csvEscape(r.bankcard) + ',' + csvEscape(r.resume) + ',' + csvEscape(r.remark) + ',' + csvEscape(r.idcardPhoto ? '\u6709\u8BC1\u4EF6\u7167' : '\u65E0') + ',' + csvEscape(r.time));
+    rows.push((records.length - i) + ',' + csvEscape(r.name) + ',' + csvEscape(r.phone) + ',' + csvEscape(r.idcard) + ',' + csvEscape(r.empno) + ',' + csvEscape(r.bankcard) + ',' + csvEscape(r.resume) + ',' + csvEscape(r.remark) + ',' + csvEscape(r.time));
   }
   var blob = new Blob([BOM + header + rows.join('\n')], { type:'text/csv;charset=utf-8' });
   var url = URL.createObjectURL(blob);
