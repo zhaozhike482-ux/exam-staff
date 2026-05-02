@@ -714,12 +714,16 @@ function loadRecords(onDone) {
   isLoading = true;
   var lo = document.getElementById('loading-overlay');
   if (lo) lo.classList.add('show');
+  /* 先获取文件SHA，再获取内容 */
+  fetch(GH_API, { headers: { 'Authorization': 'token ' + _gT() } })
+    .then(function(r){ return r.json(); })
+    .then(function(info){ if (info.sha) ghSha = info.sha; })
+    .catch(function(){});
   fetch(GH_RAW + '?t=' + Date.now())
     .then(function(r){ return r.json(); })
     .then(function(data){
       records = data.records || [];
       trashRecords = data.trashRecords || [];
-      ghSha = data._sha || '';
       if (data.pwdHash) localStorage.setItem(PWD_STORE_KEY, data.pwdHash);
       if (onDone) onDone();
     })
